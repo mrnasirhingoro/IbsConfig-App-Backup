@@ -1,0 +1,464 @@
+package com.ibs.configapp.firebase
+
+import android.content.Context
+import android.location.Location
+import android.util.Log
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.auth.FirebaseAuthException
+import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.FirebaseFirestore
+import com.google.firebase.firestore.FirebaseFirestoreException
+import com.google.firebase.firestore.FirebaseFirestoreSettings
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.SetOptions
+import com.ibs.configapp.util.PrefsHelper
+import kotlinx.coroutines.tasks.await
+
+object FirestoreManager {
+    private const val TAG = "FirestoreManager"
+    private const val COL_DEVICES = "devices"
+    private const val COL_SIM_CHANGE = "simChangeLogs"
+    private const val COL_LOCATION = "locationLogs"
+
+    private val db: FirebaseFirestore by lazy {
+        FirebaseFirestore.getInstance().apply {
+            firestoreSettings = FirebaseFirestoreSettings.Builder()
+                .setPersistenceEnabled(true)
+                .build()
+        }
+    }
+
+    /**
+     * Signs in anonymously and waits for completion before any Firestore write.
+     */
+    private suspend fun ensureAnonymousAuth(): String {
+        val auth = FirebaseAuth.getInstance()
+        auth.currentUser?.uid?.let { uid ->
+            Log.i(TAG, "Firebase Auth already signed in uid=$uid anonymous=${auth.currentUser?.isAnonymous}")
+            return uid
+        }
+
+        Log.i(TAG, "Starting FirebaseAuth.signInAnonymously()...")
+        return try {
+            val result = FirebaseAuth.getInstance().signInAnonymously().await()
+            val user = result.user
+                ?: throw IllegalStateException("Anonymous sign-in completed but user is null")
+            Log.i(TAG, "Anonymous sign-in successful uid=${user.uid}")
+            user.uid
+        } catch (e: FirebaseAuthException) {
+            Log.e(TAG, "Anonymous sign-in failed errorCode=${e.errorCode} message=${e.message}", e)
+            throw e
+        } catch (e: Exception) {
+            Log.e(TAG, "Anonymous sign-in failed: ${e.message}", e)
+            throw e
+        }
+    }
+
+    private suspend fun prepareWrite(context: Context): String {
+        FirebaseAuthHelper.verifyProjectConfig(context)
+        return ensureAnonymousAuth()
+    }
+
+    /**
+     * QR activationCode is the serial key. Resolve the Firestore customer document ID
+     * from serialKeys/customers when assigned; otherwise use activationCode as customerId.
+     */
+    private suspend fun resolveCustomerId(dealerId: String, activationCode: String): String {
+        if (activationCode.isBlank()) return ""
+
+        val customersDoc = db.collection("customers").document(activationCode).get().await()
+        if (customersDoc.exists()) {
+            val data = customersDoc.data ?: emptyMap()
+            val docDealer = data["dealerId"] as? String ?: data["clientId"] as? String
+            if (docDealer.isNullOrBlank() || docDealer == dealerId) {
+                return activationCode
+            }
+        }
+
+        for (field in listOf("key", "serialKey")) {
+            var query = db.collection("serialKeys")
+                .whereEqualTo(field, activationCode)
+                .whereEqualTo("dealerId", dealerId)
+                .limit(1)
+                .get()
+                .await()
+            if (query.isEmpty) {
+                query = db.collection("serialKeys")
+                    .whereEqualTo(field, activationCode)
+                    .whereEqualTo("clientId", dealerId)
+                    .limit(1)
+                    .get()
+                    .await()
+            }
+            if (!query.isEmpty) {
+                val resolved = query.documents[0].getString("customerId")
+                if (!resolved.isNullOrBlank()) {
+                    Log.i(TAG, "Resolved customerId=$resolved from serialKeys for activationCode=$activationCode")
+                    return resolved
+                }
+            }
+        }
+
+        var customerQuery = db.collection("customers")
+            .whereEqualTo("serialKey", activationCode)
+            .whereEqualTo("clientId", dealerId)
+            .limit(1)
+            .get()
+            .await()
+        if (customerQuery.isEmpty) {
+            customerQuery = db.collection("customers")
+                .whereEqualTo("serialKey", activationCode)
+                .whereEqualTo("dealerId", dealerId)
+                .limit(1)
+                .get()
+                .await()
+        }
+        if (!customerQuery.isEmpty) {
+            val resolved = customerQuery.documents[0].id
+            Log.i(TAG, "Resolved customerId=$resolved from customers.serialKey for activationCode=$activationCode")
+            return resolved
+        }
+
+        Log.i(TAG, "Using activationCode as customerId: $activationCode")
+        return activationCode
+    }
+
+    suspend fun activateDevice(
+        context: Context,
+        dealerId: String,
+        imei1: String,
+        imei2: String,
+        simType: String,
+        fcmToken: String?,
+        activationCode: String?
+    ): String {
+        val authUid = ensureAnonymousAuth()
+        FirebaseAuthHelper.verifyProjectConfig(context)
+
+        val code = activationCode?.trim().orEmpty()
+        val customerId = resolveCustomerId(dealerId, code)
+        val deviceId = PrefsHelper.getOrCreateDeviceId(context)
+        val data = hashMapOf<String, Any>(
+            "dealerId" to dealerId,
+            "customerId" to customerId,
+            "imei1" to imei1,
+            "imei2" to imei2,
+            "simType" to simType,
+            "fcmToken" to (fcmToken ?: ""),
+            "activationCode" to code,
+            "serialKey" to code,
+            "authUid" to authUid,
+            "status" to "active",
+            "isLocked" to false,
+            "isOnline" to true,
+            "lastSeen" to FieldValue.serverTimestamp(),
+            "dealerName" to "",
+            "dealerPhone" to "",
+            "secureCode" to ""
+        )
+        try {
+            Log.i(TAG, "Writing device document devices/$deviceId ...")
+            db.collection(COL_DEVICES).document(deviceId).set(data, SetOptions.merge()).await()
+            Log.i(TAG, "Device activated in Firestore deviceId=$deviceId customerId=$customerId dealerId=$dealerId authUid=$authUid")
+            return customerId
+        } catch (e: FirebaseFirestoreException) {
+            Log.e(TAG, "activateDevice Firestore error code=${e.code} message=${e.message}", e)
+            throw e
+        }
+    }
+
+    suspend fun updateFcmToken(context: Context, token: String) {
+        ensureAnonymousAuth()
+        val deviceId = PrefsHelper.getOrCreateDeviceId(context)
+        db.collection(COL_DEVICES).document(deviceId)
+            .update(
+                mapOf(
+                    "fcmToken" to token,
+                    "lastSeen" to FieldValue.serverTimestamp()
+                )
+            ).await()
+    }
+
+    suspend fun ensureAuthenticated(context: Context): String {
+        FirebaseAuthHelper.verifyProjectConfig(context)
+        return ensureAnonymousAuth()
+    }
+
+    suspend fun fetchCommandDetails(commandId: String): Map<String, Any?> {
+        ensureAnonymousAuth()
+        val snap = db.collection("deviceCommands").document(commandId).get().await()
+        return snap.data ?: emptyMap()
+    }
+
+    suspend fun markCommandExecuted(
+        context: Context,
+        commandId: String?,
+        success: Boolean
+    ) {
+        ensureAnonymousAuth()
+        val deviceId = PrefsHelper.getOrCreateDeviceId(context)
+        val status = if (success) "executed" else "failed"
+        val updates = hashMapOf<String, Any>(
+            "commandStatus" to status,
+            "commandExecutedAt" to FieldValue.serverTimestamp(),
+            "command" to FieldValue.delete()
+        )
+        db.collection(COL_DEVICES).document(deviceId).update(updates).await()
+        Log.i(TAG, "Command marked $status on deviceId=$deviceId commandId=$commandId")
+
+        if (!commandId.isNullOrBlank()) {
+            try {
+                db.collection("deviceCommands").document(commandId).update(
+                    mapOf(
+                        "status" to status,
+                        "executedAt" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+            } catch (e: Exception) {
+                Log.w(TAG, "deviceCommands status update failed commandId=$commandId", e)
+            }
+        }
+    }
+
+    fun listenDeviceCommands(
+        context: Context,
+        onCommand: (command: String, data: Map<String, Any?>) -> Unit,
+        onDeviceUpdate: (data: Map<String, Any?>) -> Unit
+    ): ListenerRegistration {
+        val deviceId = PrefsHelper.getOrCreateDeviceId(context)
+        Log.i(TAG, "Attaching Firestore listener on devices/$deviceId")
+        return db.collection(COL_DEVICES).document(deviceId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e(TAG, "Snapshot listener error on devices/$deviceId", error)
+                    return@addSnapshotListener
+                }
+                if (snapshot == null || !snapshot.exists()) {
+                    Log.w(TAG, "Device document missing for listener deviceId=$deviceId")
+                    return@addSnapshotListener
+                }
+                val map = snapshot.data ?: return@addSnapshotListener
+                onDeviceUpdate(map)
+
+                val command = map["command"] as? String
+                if (command.isNullOrBlank()) return@addSnapshotListener
+
+                val commandStatus = map["commandStatus"] as? String
+                if (commandStatus != null && commandStatus != "pending") {
+                    Log.d(TAG, "Ignoring command=$command status=$commandStatus")
+                    return@addSnapshotListener
+                }
+
+                Log.i(TAG, "Firestore command received: $command commandId=${map["commandId"]}")
+                onCommand(command, map)
+
+                val isLocked = map["isLocked"] as? Boolean ?: false
+                PrefsHelper.setLocked(context, isLocked)
+                val dealerName = map["dealerName"] as? String
+                val dealerPhone = map["dealerPhone"] as? String
+                val secureCode = map["secureCode"] as? String
+                PrefsHelper.setDealerInfo(context, dealerName, dealerPhone, secureCode)
+            }
+    }
+
+    suspend fun setOnlineStatus(context: Context, online: Boolean) {
+        if (!PrefsHelper.isActivated(context)) return
+        try {
+            ensureAnonymousAuth()
+            val deviceId = PrefsHelper.getOrCreateDeviceId(context)
+            db.collection(COL_DEVICES).document(deviceId)
+                .update(
+                    mapOf(
+                        "isOnline" to online,
+                        "lastSeen" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+            Log.d(TAG, "setOnlineStatus online=$online deviceId=$deviceId")
+        } catch (e: Exception) {
+            Log.w(TAG, "setOnlineStatus failed online=$online", e)
+        }
+    }
+
+    /** Heartbeat every 5 minutes — keeps isOnline true and lastSeen fresh. */
+    suspend fun sendHeartbeat(context: Context) {
+        if (!PrefsHelper.isActivated(context)) return
+        try {
+            ensureAnonymousAuth()
+            val deviceId = PrefsHelper.getOrCreateDeviceId(context)
+            db.collection(COL_DEVICES).document(deviceId)
+                .update(
+                    mapOf(
+                        "isOnline" to true,
+                        "lastSeen" to FieldValue.serverTimestamp()
+                    )
+                ).await()
+        } catch (e: Exception) {
+            Log.w(TAG, "sendHeartbeat failed", e)
+        }
+    }
+
+    suspend fun updateLastSeen(context: Context) {
+        sendHeartbeat(context)
+    }
+
+    /** Load dealer + secure code for lock screen display and cache locally. */
+    suspend fun fetchLockScreenData(context: Context) {
+        val dealerId = PrefsHelper.getDealerId(context)
+        if (dealerId.isNullOrBlank()) return
+
+        try {
+            ensureAnonymousAuth()
+            val deviceId = PrefsHelper.getOrCreateDeviceId(context)
+
+            var dealerName = ""
+            var dealerPhone: String? = null
+            var secureCode: String? = null
+
+            val dealerSnap = db.collection("dealers").document(dealerId).get().await()
+            if (dealerSnap.exists()) {
+                dealerName = dealerSnap.getString("name")
+                    ?: dealerSnap.getString("dealerName")
+                    ?: dealerSnap.getString("shopName")
+                    ?: dealerSnap.getString("businessName")
+                    ?: dealerId
+                dealerPhone = dealerSnap.getString("phone")
+                    ?: dealerSnap.getString("dealerPhone")
+                    ?: dealerSnap.getString("mobile")
+                    ?: dealerSnap.getString("whatsapp")
+            }
+
+            val deviceSnap = db.collection(COL_DEVICES).document(deviceId).get().await()
+            if (deviceSnap.exists()) {
+                secureCode = deviceSnap.getString("secureCode")
+                if (dealerName.isBlank()) {
+                    dealerName = deviceSnap.getString("dealerName") ?: dealerId
+                }
+                if (dealerPhone.isNullOrBlank()) {
+                    dealerPhone = deviceSnap.getString("dealerPhone")
+                }
+            }
+
+            PrefsHelper.setDealerInfo(
+                context,
+                dealerName.ifBlank { dealerId },
+                dealerPhone,
+                secureCode ?: PrefsHelper.getSecureCode(context)
+            )
+            Log.i(TAG, "Lock screen data loaded dealer=$dealerName phone=$dealerPhone")
+        } catch (e: Exception) {
+            Log.w(TAG, "fetchLockScreenData failed for dealerId=$dealerId", e)
+        }
+    }
+
+    /** Load dealer display name from Firestore dealers/{dealerId} and cache locally. */
+    suspend fun fetchAndCacheDealerName(context: Context): String {
+        val dealerId = PrefsHelper.getDealerId(context)
+        if (dealerId.isNullOrBlank()) {
+            return PrefsHelper.getDealerName(context).ifBlank {
+                context.getString(com.ibs.configapp.R.string.device_management_dealer_fallback)
+            }
+        }
+        try {
+            ensureAnonymousAuth()
+            val snapshot = db.collection("dealers").document(dealerId).get().await()
+            if (snapshot.exists()) {
+                val name = snapshot.getString("name")
+                    ?: snapshot.getString("dealerName")
+                    ?: snapshot.getString("shopName")
+                    ?: snapshot.getString("businessName")
+                    ?: dealerId
+                val phone = snapshot.getString("phone")
+                    ?: snapshot.getString("dealerPhone")
+                    ?: snapshot.getString("mobile")
+                PrefsHelper.setDealerInfo(
+                    context,
+                    name,
+                    phone,
+                    PrefsHelper.getSecureCode(context)
+                )
+                Log.i(TAG, "Dealer name loaded from Firestore: $name")
+                return name
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "fetchAndCacheDealerName failed for dealerId=$dealerId", e)
+        }
+        val cached = PrefsHelper.getDealerName(context)
+        return cached.ifBlank { dealerId }
+    }
+
+    suspend fun updateLockStatus(context: Context, locked: Boolean) {
+        ensureAnonymousAuth()
+        val deviceId = PrefsHelper.getOrCreateDeviceId(context)
+        db.collection(COL_DEVICES).document(deviceId)
+            .update("isLocked", locked)
+            .await()
+    }
+
+    suspend fun logSimChange(
+        context: Context,
+        oldSim: Map<String, String?>,
+        newSim: Map<String, String?>
+    ) {
+        ensureAnonymousAuth()
+        val deviceId = PrefsHelper.getOrCreateDeviceId(context)
+        val dealerId = PrefsHelper.getDealerId(context) ?: ""
+        val entry = hashMapOf(
+            "deviceId" to deviceId,
+            "dealerId" to dealerId,
+            "oldSim" to oldSim,
+            "newSim" to newSim,
+            "timestamp" to FieldValue.serverTimestamp()
+        )
+        db.collection(COL_SIM_CHANGE).add(entry).await()
+        db.collection(COL_DEVICES).document(deviceId)
+            .update(
+                mapOf(
+                    "lastSimChange" to FieldValue.serverTimestamp(),
+                    "simAlert" to true
+                )
+            ).await()
+    }
+
+    suspend fun saveLocation(context: Context, location: Location) {
+        ensureAnonymousAuth()
+        val deviceId = PrefsHelper.getOrCreateDeviceId(context)
+        val dealerId = PrefsHelper.getDealerId(context) ?: ""
+        val customerId = PrefsHelper.getCustomerId(context) ?: ""
+        val locData = hashMapOf<String, Any>(
+            "latitude" to location.latitude,
+            "longitude" to location.longitude,
+            "accuracy" to location.accuracy,
+            "timestamp" to FieldValue.serverTimestamp()
+        )
+        db.collection(COL_LOCATION).add(
+            hashMapOf(
+                "deviceId" to deviceId,
+                "dealerId" to dealerId,
+                "customerId" to customerId,
+                "location" to locData
+            )
+        ).await()
+        db.collection("deviceLocations").add(
+            hashMapOf(
+                "deviceId" to deviceId,
+                "dealerId" to dealerId,
+                "customerId" to customerId,
+                "latitude" to location.latitude,
+                "longitude" to location.longitude,
+                "accuracy" to location.accuracy,
+                "timestamp" to FieldValue.serverTimestamp()
+            )
+        ).await()
+        db.collection(COL_DEVICES).document(deviceId)
+            .set(
+                mapOf(
+                    "latitude" to location.latitude,
+                    "longitude" to location.longitude,
+                    "lastLocationTime" to FieldValue.serverTimestamp(),
+                    "currentLocation" to locData,
+                    "lastSeen" to FieldValue.serverTimestamp()
+                ),
+                SetOptions.merge()
+            ).await()
+    }
+}

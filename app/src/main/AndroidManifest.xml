@@ -1,0 +1,173 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+    <uses-permission android:name="android.permission.READ_CALL_LOG" />
+    <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RECEIVE_SMS" tools:node="remove" />
+    <uses-permission
+        android:name="android.permission.PROCESS_OUTGOING_CALLS"
+        tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.SET_WALLPAPER" />
+
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <application
+        android:name=".IbsApplication"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.IBSConfigApp"
+        tools:targetApi="35">
+
+        <activity
+            android:name=".PermissionSetupActivity"
+            android:exported="true"
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:theme="@style/Theme.IBSConfigApp" />
+
+        <activity
+            android:name=".QRScannerActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".ActivationActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".BrandBackgroundSetupActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".DeviceManagementInfoActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:theme="@style/Theme.IBSConfigApp.Transparent" />
+
+        <activity
+            android:name=".LockScreenActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:screenOrientation="portrait"
+            android:showOnLockScreen="true"
+            android:theme="@style/Theme.IBSConfigApp.Lock"
+            android:turnScreenOn="true" />
+
+        <receiver
+            android:name=".IbsDeviceAdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".UnlockDismissReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.ibs.configapp.UNLOCK_DEVICE" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".service.PhoneStateReceiver"
+            android:exported="true">
+            <intent-filter android:priority="999">
+                <action android:name="android.intent.action.NEW_OUTGOING_CALL" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SIM_STATE_CHANGED" />
+                <action android:name="android.telephony.action.PHONE_STATE_CHANGED" />
+            </intent-filter>
+        </receiver>
+
+        <service
+            android:name=".service.BackgroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="location|dataSync|connectedDevice"
+            android:stopWithTask="false" />
+
+        <service
+            android:name=".service.FirebaseService"
+            android:directBootAware="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+            <meta-data
+                android:name="com.google.firebase.messaging.default_notification_channel_id"
+                android:value="ibs_fcm_channel" />
+            <meta-data
+                android:name="com.google.firebase.messaging.default_notification_priority"
+                android:value="high" />
+        </service>
+
+        <service
+            android:name=".service.AppBlockAccessibilityService"
+            android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
+
+        <service
+            android:name=".service.RestartJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
+    </application>
+</manifest>

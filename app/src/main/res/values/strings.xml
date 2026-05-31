@@ -1,0 +1,134 @@
+<resources>
+    <string name="app_name">IBS Config App</string>
+    <string name="permission_setup_title">Permission Setup</string>
+    <string name="accept_and_continue">I accept and understand all setup requirements</string>
+    <string name="proceed">PROCEED</string>
+    <string name="grant">Grant</string>
+    <string name="granted">Granted</string>
+    <string name="not_granted">Not granted</string>
+    <string name="activation_title">Device Activation</string>
+    <string name="imei1_hint">Enter IMEI 1</string>
+    <string name="imei2_hint">Enter IMEI 2</string>
+    <string name="single_sim">Single SIM</string>
+    <string name="dual_sim">Dual SIM</string>
+    <string name="activate">ACTIVATE</string>
+    <string name="scan_qr_title">Scan Dealer QR Code</string>
+    <string name="scan_qr_hint">Point camera at dealer QR code</string>
+    <string name="lock_title">Your Device is Locked</string>
+    <string name="lock_message">Please pay your EMI on time and contact your dealer to unlock</string>
+    <string name="lock_notice_banner">اہم اطلاع / IMPORTANT NOTICE</string>
+    <string name="lock_urdu_owner">یہ موبائل فون %1$s کی ملکیت ہے اور آسان اقساط کی سہولت کے تحت دیا گیا ہے</string>
+    <string name="lock_urdu_locked_box">جب تک مکمل رقم ادا نہیں ہوتی، یہ ڈیوائس مقفل رہے گی</string>
+    <string name="lock_english_locked">This device will remain locked until full payment is made</string>
+    <string name="lock_payment_contact">For payment contact: %1$s</string>
+    <string name="lock_icon_secure">Secure</string>
+    <string name="lock_icon_trusted">Trusted</string>
+    <string name="lock_icon_support">Customer Support</string>
+    <string name="lock_icon_legal">Legal Protection</string>
+    <string name="lock_icon_data">Data Protected</string>
+    <string name="secure_code_label">Secure Code</string>
+    <string name="imei_label">IMEI</string>
+    <string name="retailer_label">Retailer</string>
+    <string name="emergency_call">Emergency Call</string>
+    <string name="financed_notification">%1$s - This device is financed. Do not remove.</string>
+    <string name="financed_notification_default">Financed Device - Do not remove.</string>
+    <string name="device_management_title">Device Management</string>
+    <string name="device_management_notification_body">This device belongs to &amp; financed by %1$s</string>
+    <string name="device_management_dialog_message">This device belongs to &amp; financed by %1$s.\n\nYour IT admin can monitor and manage settings, corporate access, apps, data associated with your device, and your device\'s location information.\n\nFor more information, contact your IT admin.</string>
+    <string name="device_management_policies_title">Device Policies</string>
+    <string name="device_management_policies_body">Managed by %1$s:\n\n• Device lock and unlock remotely\n• App usage restrictions\n• Location tracking for financed devices\n• SIM change alerts\n• Uninstall protection when device owner is enabled\n\nContact your IT admin for changes.</string>
+    <string name="device_management_dealer_fallback">Your Dealer</string>
+    <string name="device_management_channel_desc">Device management and financing protection</string>
+    <string name="view_policies">View Policies</string>
+    <string name="ok">OK</string>
+    <string name="fcm_channel_name">Device Commands</string>
+    <string name="fcm_channel_desc">Instant lock/unlock commands from dealer</string>
+    <string name="alert_default_title">Message from Dealer</string>
+    <string name="alert_default_message">Payment due</string>
+    <string name="device_admin_description">IBS Config requires device administrator to protect financed devices.</string>
+    <string name="accessibility_description">IBS Config uses accessibility to enforce app restrictions on financed devices.</string>
+    <string name="background_service_channel">Device Protection</string>
+    <string name="background_service_running">Protection service is active</string>
+
+    <string name="perm_device_admin">Device Administrator</string>
+    <string name="perm_accessibility">Accessibility Service</string>
+    <string name="perm_overlay">Display Over Other Apps</string>
+    <string name="perm_location">Location (Fine + Background)</string>
+    <string name="perm_phone">Phone (State + Calls)</string>
+    <string name="perm_call_logs">Call Logs</string>
+    <string name="perm_notifications">Notifications</string>
+    <string name="perm_battery">Battery Optimization Exemption</string>
+    <string name="perm_auto_start">Auto Start Permission</string>
+    <string name="perm_play_protect">Disable Play Protect</string>
+    <string name="perm_multiple_users">Disable Multiple Users</string>
+
+    <string name="guide_auto_start">Enable auto-start for IBS Config App in your device settings (varies by manufacturer).</string>
+    <string name="guide_play_protect">Open Play Store → Profile → Play Protect → Settings → turn off \"Scan apps with Play Protect\".</string>
+    <string name="guide_multiple_users">Open Settings → Users → ensure only one user is active. Remove extra users if any.</string>
+    <string name="guide_battery">Tap Grant to open battery settings and allow unrestricted background activity.</string>
+    <string name="guide_overlay">Tap Grant to allow display over other apps.</string>
+    <string name="guide_location">Tap Grant to allow location while using and in background.</string>
+    <string name="guide_accessibility">Tap Grant to enable IBS Config accessibility service.</string>
+    <string name="guide_device_admin">Tap Grant to activate device administrator.</string>
+    <string name="guide_phone">Tap Grant to allow phone state and outgoing call permissions.</string>
+    <string name="guide_call_logs">Tap Grant to allow reading call logs.</string>
+    <string name="guide_notifications">Tap Grant to enable notifications for device protection alerts.</string>
+
+    <string name="confirm_auto_start_message">Did you enable auto-start for IBS Config App?</string>
+    <string name="confirm_play_protect_message">Did you disable Play Protect scanning?</string>
+    <string name="confirm_multiple_users_message">Did you disable extra users and keep only one user?</string>
+    <string name="yes">Yes</string>
+    <string name="no">No</string>
+
+    <string name="error_all_permissions">Please grant all permissions first</string>
+    <string name="error_activation">Activation failed. Check network and try again.</string>
+    <string name="error_activation_network">Activation failed. Check your internet connection.</string>
+    <string name="error_activation_permission">Activation failed. Firestore access denied. Enable Anonymous Auth in Firebase Console.</string>
+    <string name="error_activation_auth_disabled">Activation failed. Enable Anonymous sign-in in Firebase Authentication.</string>
+    <string name="error_activation_detail">Activation failed: %1$s</string>
+    <string name="activation_success">Device activated successfully</string>
+    <string name="error_invalid_qr">Invalid QR code format</string>
+    <string name="error_imei_required">IMEI 1 is required</string>
+    <string name="error_imei2_required">IMEI 2 is required for dual SIM</string>
+
+    <string name="brand_setup_screen_title">Background Service Setup</string>
+    <string name="brand_setup_detected_device">Detected: %1$s (%2$s)\nManufacturer: %3$s</string>
+    <string name="brand_setup_confirm">I have enabled the required setting for IBS Config App</string>
+    <string name="brand_setup_continue">CONTINUE</string>
+    <string name="brand_setup_complete">Background protection enabled</string>
+    <string name="brand_setup_settings_failed">Could not open settings. Use App Info and enable background activity manually.</string>
+    <string name="brand_setup_open_autostart">Open Auto-start Settings</string>
+    <string name="brand_setup_open_battery">Disable Battery Optimization</string>
+    <string name="brand_setup_open_protected">Open Protected Apps Settings</string>
+    <string name="brand_setup_status_battery">Battery optimization is disabled for this app.</string>
+    <string name="brand_setup_status_autostart">Return here after enabling auto-start.</string>
+    <string name="brand_setup_status_protected">Return here after adding this app to protected apps.</string>
+
+    <string name="brand_setup_title_xiaomi">Enable MIUI Auto-start</string>
+    <string name="brand_setup_desc_xiaomi">MIUI stops background apps unless auto-start is enabled. This keeps dealer commands and device protection working.</string>
+    <string name="brand_setup_steps_xiaomi">1. Tap \"Open Auto-start Settings\"\n2. Find IBS Config App in the list\n3. Turn ON auto-start for IBS Config App\n4. Return here and confirm</string>
+
+    <string name="brand_setup_title_oppo">Enable ColorOS Auto-start</string>
+    <string name="brand_setup_desc_oppo">ColorOS blocks background services unless startup is allowed for this app.</string>
+    <string name="brand_setup_steps_oppo">1. Tap \"Open Auto-start Settings\"\n2. Open Startup manager / Auto-launch apps\n3. Enable IBS Config App\n4. Return here and confirm</string>
+
+    <string name="brand_setup_title_realme">Enable Realme Auto-start</string>
+    <string name="brand_setup_desc_realme">Realme UI requires auto-start permission so the protection service stays running.</string>
+    <string name="brand_setup_steps_realme">1. Tap \"Open Auto-start Settings\"\n2. Find IBS Config App\n3. Allow auto-start / run in background\n4. Return here and confirm</string>
+
+    <string name="brand_setup_title_vivo">Enable Funtouch Auto-start</string>
+    <string name="brand_setup_desc_vivo">Vivo phones stop background apps unless background startup is allowed.</string>
+    <string name="brand_setup_steps_vivo">1. Tap \"Open Auto-start Settings\"\n2. Open Background startup / Auto-start manager\n3. Enable IBS Config App\n4. Return here and confirm</string>
+
+    <string name="brand_setup_title_samsung">Disable Samsung Battery Optimization</string>
+    <string name="brand_setup_desc_samsung">One UI may stop background services to save battery. Allow unrestricted background use for IBS Config App.</string>
+    <string name="brand_setup_steps_samsung">1. Tap \"Disable Battery Optimization\"\n2. Choose Allow / Don\'t optimize for IBS Config App\n3. In Device care, set app battery to Unrestricted if prompted\n4. Return here and confirm</string>
+
+    <string name="brand_setup_title_huawei">Add to Huawei Protected Apps</string>
+    <string name="brand_setup_desc_huawei">EMUI closes background apps unless they are protected and allowed to auto-launch.</string>
+    <string name="brand_setup_steps_huawei">1. Tap \"Open Protected Apps Settings\"\n2. Add IBS Config App to Protected apps\n3. Enable auto-launch / run in background if shown\n4. Return here and confirm</string>
+
+    <string name="brand_setup_title_generic">Allow Background Activity</string>
+    <string name="brand_setup_desc_generic">Your phone may stop background services. Disable battery optimization so dealer commands reach this device.</string>
+    <string name="brand_setup_steps_generic">1. Tap \"Disable Battery Optimization\"\n2. Allow unrestricted background activity\n3. If your phone has auto-start settings, enable them for IBS Config App\n4. Return here and confirm</string>
+</resources>
