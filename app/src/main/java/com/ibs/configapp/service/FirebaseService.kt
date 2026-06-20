@@ -83,6 +83,7 @@ class FirebaseService : FirebaseMessagingService() {
         val commandId = data["commandId"] as? String
 
         if (CommandHandler.normalizeCommand(command) == "unlock") {
+            BackgroundService.beginUnlock()
             CommandHandler.unlockDevice(this)
             serviceScope.launch {
                 try {
@@ -94,8 +95,24 @@ class FirebaseService : FirebaseMessagingService() {
             return
         }
 
+        if (CommandHandler.normalizeCommand(command) == "release") {
+            Log.i(TAG, "Release command ignored in FCM; handled by deviceCommands listener")
+            BackgroundService.start(this)
+            return
+        }
+
+        val normalizedCommand = when (command.trim().lowercase()) {
+            "location", "getlocation", "get_location" -> "get_location"
+            "blockincoming", "block_incoming" -> "block_incoming"
+            "blockoutgoing", "block_outgoing" -> "block_outgoing"
+            "unblockcalls", "unblock_calls" -> "unblock_calls"
+            "blockapps", "block_apps" -> "block_apps"
+            "unblockapps", "unblock_apps" -> "unblock_apps"
+            else -> command
+        }
+
         try {
-            CommandHandler.handle(this, command, data) { success ->
+            CommandHandler.handle(this, normalizedCommand, data) { success ->
                 serviceScope.launch {
                     try {
                         FirestoreManager.markCommandExecuted(

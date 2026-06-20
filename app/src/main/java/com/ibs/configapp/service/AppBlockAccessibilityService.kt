@@ -12,8 +12,11 @@ class AppBlockAccessibilityService : AccessibilityService() {
         private val BLOCKED_PACKAGES = setOf(
             "com.facebook.katana",
             "com.facebook.lite",
+            "com.facebook.orca",
             "com.instagram.android",
             "com.whatsapp",
+            "com.whatsapp.w4b",
+            "com.twitter.android",
             "com.zhiliaoapp.musically",
             "com.ss.android.ugc.trill",
             "com.google.android.youtube",
@@ -25,7 +28,23 @@ class AppBlockAccessibilityService : AccessibilityService() {
             "com.google.android.dialer",
             "com.android.dialer",
             "com.miui.incallui",
-            "com.android.server.telecom"
+            "com.android.server.telecom",
+            "com.transsion.incallui",
+            "com.infinix.incallui",
+            "com.itel.incallui"
+        )
+
+        private val DIALER_PACKAGES = setOf(
+            "com.google.android.dialer",
+            "com.android.dialer",
+            "com.samsung.android.dialer",
+            "com.miui.dialer",
+            "com.coloros.dialer",
+            "com.huawei.contacts",
+            "com.transsion.dialer",
+            "com.infinix.dialer",
+            "com.itel.dialer",
+            "com.transsion.contacts"
         )
 
         private val DECLINE_LABELS = listOf(
@@ -42,8 +61,12 @@ class AppBlockAccessibilityService : AccessibilityService() {
         val packageName = event.packageName?.toString() ?: return
         if (packageName == applicationContext.packageName) return
 
-        if (PrefsHelper.isCallsBlocked(this)) {
+        if (CallBlockManager.shouldBlockIncoming(this)) {
             handleCallBlocking(event, packageName)
+        }
+
+        if (CallBlockManager.shouldBlockOutgoing(this)) {
+            handleOutgoingCallBlocking(event, packageName)
         }
 
         if (!PrefsHelper.isAppsBlocked(this)) return
@@ -66,6 +89,22 @@ class AppBlockAccessibilityService : AccessibilityService() {
             return
         }
         CallBlockManager.rejectIncomingCall(this)
+    }
+
+    private fun handleOutgoingCallBlocking(event: AccessibilityEvent, packageName: String) {
+        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED
+        ) {
+            return
+        }
+        if (CALL_UI_PACKAGES.any { packageName.contains(it, ignoreCase = true) }) {
+            CallBlockManager.blockOutgoingCall(this)
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            return
+        }
+        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        if (!DIALER_PACKAGES.any { packageName.contains(it, ignoreCase = true) }) return
+        performGlobalAction(GLOBAL_ACTION_HOME)
     }
 
     private fun clickDeclineButton(node: AccessibilityNodeInfo): Boolean {

@@ -1,9 +1,11 @@
 package com.ibs.configapp.util
 
+import android.Manifest
 import android.app.admin.DevicePolicyManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.UserManager
 import android.util.Log
 import com.ibs.configapp.IbsDeviceAdminReceiver
@@ -51,10 +53,66 @@ object DeviceProtectionManager {
                 Log.d(TAG, "Skipping device-owner policies — not device/profile owner")
                 return
             }
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            if (dpm.isDeviceOwnerApp(context.packageName)) {
+                val dealerName = PrefsHelper.getDealerName(context)
+                    .ifBlank { "your dealer" }
+                val admin = ComponentName(context, IbsDeviceAdminReceiver::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    dpm.setOrganizationName(
+                        admin,
+                        dealerName
+                    )
+                }
+            }
             blockUninstallIfPossible(context)
             tryBlockFactoryReset(context)
+            grantSystemAlertWindowPermission(context)
+            if (dpm.isDeviceOwnerApp(context.packageName)) {
+                val admin = ComponentName(context, IbsDeviceAdminReceiver::class.java)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    dpm.setLocationEnabled(admin, true)
+                }
+                try {
+                    dpm.addUserRestriction(admin, UserManager.DISALLOW_CONFIG_LOCATION)
+                } catch (e: Exception) {
+                    Log.w(TAG, "DISALLOW_CONFIG_LOCATION failed", e)
+                }
+            }
         } catch (e: Exception) {
             Log.w(TAG, "applyDeviceOwnerPolicies failed", e)
+        }
+    }
+
+    fun enforceLocationPolicy(context: Context) {
+        try {
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            val admin = ComponentName(context, IbsDeviceAdminReceiver::class.java)
+            if (!dpm.isDeviceOwnerApp(context.packageName)) return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                dpm.setLocationEnabled(admin, true)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "enforceLocationPolicy failed", e)
+        }
+    }
+
+    fun grantSystemAlertWindowPermission(context: Context) {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.M) return
+        try {
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            val admin = ComponentName(context, IbsDeviceAdminReceiver::class.java)
+            if (dpm.isDeviceOwnerApp(context.packageName)) {
+                dpm.setPermissionGrantState(
+                    admin,
+                    context.packageName,
+                    Manifest.permission.SYSTEM_ALERT_WINDOW,
+                    DevicePolicyManager.PERMISSION_GRANT_STATE_GRANTED
+                )
+                Log.i(TAG, "SYSTEM_ALERT_WINDOW permission granted via Device Owner")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "grantSystemAlertWindowPermission failed", e)
         }
     }
 

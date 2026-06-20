@@ -10,6 +10,7 @@ import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.FirebaseFirestoreSettings
 import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.MetadataChanges
 import com.google.firebase.firestore.SetOptions
 import com.ibs.configapp.util.PrefsHelper
 import kotlinx.coroutines.tasks.await
@@ -18,12 +19,12 @@ object FirestoreManager {
     private const val TAG = "FirestoreManager"
     private const val COL_DEVICES = "devices"
     private const val COL_SIM_CHANGE = "simChangeLogs"
-    private const val COL_LOCATION = "locationLogs"
+    private const val COL_DEVICE_LOCATIONS = "deviceLocations"
 
     private val db: FirebaseFirestore by lazy {
         FirebaseFirestore.getInstance().apply {
             firestoreSettings = FirebaseFirestoreSettings.Builder()
-                .setPersistenceEnabled(true)
+                .setPersistenceEnabled(false)
                 .build()
         }
     }
@@ -193,15 +194,20 @@ object FirestoreManager {
     suspend fun markCommandExecuted(
         context: Context,
         commandId: String?,
-        success: Boolean
+        success: Boolean,
+        successStatus: String? = null
     ) {
         ensureAnonymousAuth()
         val deviceId = PrefsHelper.getOrCreateDeviceId(context)
-        val status = if (success) "executed" else "failed"
+        val status = when {
+            !success -> "failed"
+            !successStatus.isNullOrBlank() -> successStatus
+            else -> "executed"
+        }
         val updates = hashMapOf<String, Any>(
-            "commandStatus" to status,
+            "commandStatus" to "",
             "commandExecutedAt" to FieldValue.serverTimestamp(),
-            "command" to FieldValue.delete()
+            "command" to ""
         )
         db.collection(COL_DEVICES).document(deviceId).update(updates).await()
         Log.i(TAG, "Command marked $status on deviceId=$deviceId commandId=$commandId")
@@ -228,11 +234,16 @@ object FirestoreManager {
         val deviceId = PrefsHelper.getOrCreateDeviceId(context)
         Log.i(TAG, "Attaching Firestore listener on devices/$deviceId")
         return db.collection(COL_DEVICES).document(deviceId)
-            .addSnapshotListener { snapshot, error ->
+            .addSnapshotListener(MetadataChanges.EXCLUDE) { snapshot, error ->
+                Log.i(TAG, "=== SNAPSHOT CALLBACK FIRED ===")
                 if (error != null) {
-                    Log.e(TAG, "Snapshot listener error on devices/$deviceId", error)
+                    Log.e(TAG, "Snapshot error: ${error.message}")
                     return@addSnapshotListener
                 }
+                Log.i(
+                    TAG,
+                    "Snapshot exists=${snapshot?.exists()} fromCache=${snapshot?.metadata?.isFromCache}"
+                )
                 if (snapshot == null || !snapshot.exists()) {
                     Log.w(TAG, "Device document missing for listener deviceId=$deviceId")
                     return@addSnapshotListener
@@ -240,20 +251,32 @@ object FirestoreManager {
                 val map = snapshot.data ?: return@addSnapshotListener
                 onDeviceUpdate(map)
 
-                val command = map["command"] as? String
-                if (command.isNullOrBlank()) return@addSnapshotListener
+                val commandId = map["commandId"] as? String
+                if (commandId.isNullOrBlank()) return@addSnapshotListener
 
                 val commandStatus = map["commandStatus"] as? String
-                if (commandStatus != null && commandStatus != "pending") {
-                    Log.d(TAG, "Ignoring command=$command status=$commandStatus")
+                if (commandStatus == "processing") {
+                    Log.d(TAG, "Ignoring command status=processing commandId=$commandId")
                     return@addSnapshotListener
                 }
 
-                Log.i(TAG, "Firestore command received: $command commandId=${map["commandId"]}")
+                val command = map["command"] as? String
+                if (command.isNullOrBlank()) {
+                    Log.d(TAG, "Ignoring devices listener snapshot with no command commandId=$commandId")
+                    return@addSnapshotListener
+                }
+
+                Log.i(TAG, "Firestore command received: $command commandId=$commandId")
                 onCommand(command, map)
 
                 val isLocked = map["isLocked"] as? Boolean ?: false
-                PrefsHelper.setLocked(context, isLocked)
+                if (!com.ibs.configapp.service.BackgroundService.isUnlockInProgress) {
+                    if (!isLocked) {
+                        PrefsHelper.setLocked(context, false)
+                    } else if (PrefsHelper.isLocked(context)) {
+                        PrefsHelper.setLocked(context, true)
+                    }
+                }
                 val dealerName = map["dealerName"] as? String
                 val dealerPhone = map["dealerPhone"] as? String
                 val secureCode = map["secureCode"] as? String
@@ -301,6 +324,19 @@ object FirestoreManager {
         sendHeartbeat(context)
     }
 
+    /** Lock-screen wallpaper URL stored on the device doc by the dealer app. */
+    suspend fun fetchDealerWallpaperUrlFromDevice(context: Context): String? {
+        return try {
+            ensureAnonymousAuth()
+            val deviceId = PrefsHelper.getOrCreateDeviceId(context)
+            val snap = db.collection(COL_DEVICES).document(deviceId).get().await()
+            snap.getString("dealerWallpaperUrl")?.trim()?.takeIf { it.isNotEmpty() }
+        } catch (e: Exception) {
+            Log.w(TAG, "fetchDealerWallpaperUrlFromDevice failed", e)
+            null
+        }
+    }
+
     /** Load dealer + secure code for lock screen display and cache locally. */
     suspend fun fetchLockScreenData(context: Context) {
         val dealerId = PrefsHelper.getDealerId(context)
@@ -325,6 +361,8 @@ object FirestoreManager {
                     ?: dealerSnap.getString("dealerPhone")
                     ?: dealerSnap.getString("mobile")
                     ?: dealerSnap.getString("whatsapp")
+                val wallpaperUrl = dealerSnap.getString("wallpaper")
+                PrefsHelper.setDealerWallpaperUrl(context, wallpaperUrl)
             }
 
             val deviceSnap = db.collection(COL_DEVICES).document(deviceId).get().await()
@@ -394,6 +432,23 @@ object FirestoreManager {
             .await()
     }
 
+    suspend fun updateCallBlockStatus(
+        context: Context,
+        incomingBlocked: Boolean,
+        outgoingBlocked: Boolean
+    ) {
+        ensureAnonymousAuth()
+        val deviceId = PrefsHelper.getOrCreateDeviceId(context)
+        db.collection(COL_DEVICES).document(deviceId)
+            .update(
+                mapOf(
+                    "incomingBlocked" to incomingBlocked,
+                    "outgoingBlocked" to outgoingBlocked
+                )
+            )
+            .await()
+    }
+
     suspend fun logSimChange(
         context: Context,
         oldSim: Map<String, String?>,
@@ -420,45 +475,20 @@ object FirestoreManager {
     }
 
     suspend fun saveLocation(context: Context, location: Location) {
-        ensureAnonymousAuth()
-        val deviceId = PrefsHelper.getOrCreateDeviceId(context)
-        val dealerId = PrefsHelper.getDealerId(context) ?: ""
-        val customerId = PrefsHelper.getCustomerId(context) ?: ""
-        val locData = hashMapOf<String, Any>(
-            "latitude" to location.latitude,
-            "longitude" to location.longitude,
-            "accuracy" to location.accuracy,
-            "timestamp" to FieldValue.serverTimestamp()
-        )
-        db.collection(COL_LOCATION).add(
-            hashMapOf(
-                "deviceId" to deviceId,
-                "dealerId" to dealerId,
-                "customerId" to customerId,
-                "location" to locData
-            )
-        ).await()
-        db.collection("deviceLocations").add(
-            hashMapOf(
-                "deviceId" to deviceId,
-                "dealerId" to dealerId,
-                "customerId" to customerId,
-                "latitude" to location.latitude,
-                "longitude" to location.longitude,
-                "accuracy" to location.accuracy,
-                "timestamp" to FieldValue.serverTimestamp()
-            )
-        ).await()
-        db.collection(COL_DEVICES).document(deviceId)
-            .set(
-                mapOf(
+        try {
+            ensureAnonymousAuth()
+            val deviceId = PrefsHelper.getOrCreateDeviceId(context)
+            db.collection(COL_DEVICE_LOCATIONS).add(
+                hashMapOf(
+                    "deviceId" to deviceId,
                     "latitude" to location.latitude,
                     "longitude" to location.longitude,
-                    "lastLocationTime" to FieldValue.serverTimestamp(),
-                    "currentLocation" to locData,
-                    "lastSeen" to FieldValue.serverTimestamp()
-                ),
-                SetOptions.merge()
+                    "timestamp" to FieldValue.serverTimestamp()
+                )
             ).await()
+        } catch (e: Exception) {
+            Log.e(TAG, "saveLocation failed", e)
+            throw e
+        }
     }
 }

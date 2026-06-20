@@ -16,9 +16,22 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        create("release") {
+            storeFile = file("D:/ibs-release-key.jks")
+            storePassword = "IBS@2024"
+            keyAlias = "ibs-key"
+            keyPassword = "IBS@2024"
+        }
+    }
+
     buildTypes {
+        debug {
+            manifestPlaceholders["testOnly"] = "true"
+        }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -33,6 +46,7 @@ android {
 
     buildFeatures {
         viewBinding = true
+        buildConfig = true
     }
 }
 

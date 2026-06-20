@@ -131,4 +131,25 @@
     <string name="brand_setup_title_generic">Allow Background Activity</string>
     <string name="brand_setup_desc_generic">Your phone may stop background services. Disable battery optimization so dealer commands reach this device.</string>
     <string name="brand_setup_steps_generic">1. Tap \"Disable Battery Optimization\"\n2. Allow unrestricted background activity\n3. If your phone has auto-start settings, enable them for IBS Config App\n4. Return here and confirm</string>
+
+    <string name="device_owner_setup_title">Device Setup Required</string>
+    <string name="device_owner_setup_message">This device needs to be configured. Please follow the steps below.</string>
+    <string name="device_owner_grant_admin">Grant Device Admin</string>
+    <string name="device_owner_show_instructions">Show Setup Instructions</string>
+    <string name="device_owner_continue">Continue</string>
+    <string name="device_owner_status_admin_pending">Device Admin: Not granted</string>
+    <string name="device_owner_status_admin_granted">Device Admin: Granted</string>
+    <string name="device_owner_status_owner_pending">Device Owner: Not set</string>
+    <string name="device_owner_status_owner_granted">Device Owner: Active</string>
+    <string name="device_owner_admin_failed">Unable to open Device Admin setup</string>
+    <string name="device_owner_instructions_title">Complete Device Owner Setup</string>
+    <string name="device_owner_instructions_message">To complete setup:\n\n1. Enable USB Debugging in Developer Options\n2. Connect to computer\n3. Run this command:\n   %1$s\n4. Disconnect and use normally\n\nOR scan QR code on factory reset phone</string>
+    <string name="activation_code_entry_title">Enter Activation Code</string>
+    <string name="activation_code_dealer_hint">Dealer ID</string>
+    <string name="activation_code_code_hint">Activation Code</string>
+    <string name="activation_code_required">Enter dealer ID and activation code</string>
+    <string name="release_title">Device Released</string>
+    <string name="release_message">This device has been released by your dealer. Please uninstall the IBS Config App.</string>
+    <string name="release_uninstall_button">Uninstall Now</string>
+    <string name="release_warning_icon">Warning</string>
 </resources>

@@ -13,6 +13,9 @@ import com.ibs.configapp.databinding.ActivityActivationBinding
 import com.ibs.configapp.firebase.FirestoreManager
 import com.ibs.configapp.service.BackgroundService
 import android.content.Intent
+import android.app.admin.DevicePolicyManager
+import android.content.ComponentName
+import com.ibs.configapp.util.DeviceOwnerHelper
 import com.ibs.configapp.util.DeviceProtectionManager
 import com.ibs.configapp.util.PrefsHelper
 import kotlinx.coroutines.launch
@@ -132,6 +135,22 @@ class ActivationActivity : AppCompatActivity() {
             )
         } catch (e: Exception) {
             Log.e(TAG, "saveActivation failed (continuing)", e)
+        }
+
+        try {
+            DeviceOwnerHelper.syncDeviceOwnerState(this)
+        } catch (e: Exception) {
+            Log.w(TAG, "syncDeviceOwnerState failed (continuing)", e)
+        }
+
+        try {
+            val devicePolicyManager =
+                getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            val componentName = ComponentName(this, IbsDeviceAdminReceiver::class.java)
+            devicePolicyManager.addUserRestriction(componentName, "no_factory_reset")
+            devicePolicyManager.addUserRestriction(componentName, "no_safe_boot")
+        } catch (e: Exception) {
+            Log.w(TAG, "Factory reset restrictions failed (continuing)", e)
         }
 
         try {

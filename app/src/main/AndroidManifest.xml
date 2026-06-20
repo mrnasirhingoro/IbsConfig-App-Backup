@@ -26,6 +26,7 @@
         android:name="android.permission.PROCESS_OUTGOING_CALLS"
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.CALL_PHONE" />
+    <uses-permission android:name="android.permission.ANSWER_PHONE_CALLS" />
     <uses-permission android:name="android.permission.SET_WALLPAPER" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
@@ -53,9 +54,19 @@
         </activity>
 
         <activity
+            android:name=".DeviceOwnerSetupActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
+            android:name=".ActivationCodeEntryActivity"
+            android:exported="false"
+            android:screenOrientation="portrait" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="false"
-            android:theme="@style/Theme.IBSConfigApp" />
+            android:theme="@style/Theme.SplashTransparent" />
 
         <activity
             android:name=".QRScannerActivity"
@@ -83,11 +94,30 @@
             android:name=".LockScreenActivity"
             android:exported="false"
             android:excludeFromRecents="true"
-            android:launchMode="singleInstance"
+            android:launchMode="singleTask"
+            android:taskAffinity=""
             android:screenOrientation="portrait"
             android:showOnLockScreen="true"
             android:theme="@style/Theme.IBSConfigApp.Lock"
             android:turnScreenOn="true" />
+
+        <activity
+            android:name=".GetProvisioningModeActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.app.action.GET_PROVISIONING_MODE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".AdminPolicyComplianceActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.app.action.ADMIN_POLICY_COMPLIANCE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
 
         <receiver
             android:name=".IbsDeviceAdminReceiver"
@@ -98,6 +128,18 @@
                 android:resource="@xml/device_admin" />
             <intent-filter>
                 <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.app.action.PROFILE_PROVISIONING_COMPLETE" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.app.action.PROVISION_MANAGED_DEVICE" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.app.action.PROVISIONING_SUCCESSFUL" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_OWNER_CHANGED" />
             </intent-filter>
         </receiver>
 

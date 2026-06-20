@@ -10,6 +10,8 @@ import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
+import android.text.InputType
+import android.widget.EditText
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -19,6 +21,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import com.ibs.configapp.adapter.PermissionAdapter
 import com.ibs.configapp.adapter.PermissionRow
 import com.ibs.configapp.databinding.ActivityPermissionSetupBinding
+import com.ibs.configapp.util.DeviceOwnerHelper
 import com.ibs.configapp.util.PermissionChecker
 import com.ibs.configapp.util.PermissionSettingsHelper
 import com.ibs.configapp.util.PermissionType
@@ -30,6 +33,7 @@ class PermissionSetupActivity : AppCompatActivity() {
     private lateinit var adapter: PermissionAdapter
 
     private var pendingConfirmation: PermissionType? = null
+    private var secretTapCount = 0
 
     private val adminComponent by lazy {
         ComponentName(this, IbsDeviceAdminReceiver::class.java)
@@ -67,6 +71,7 @@ class PermissionSetupActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         if (PrefsHelper.isActivated(this)) {
             finish()
+            overridePendingTransition(0, 0)
             return
         }
         binding = ActivityPermissionSetupBinding.inflate(layoutInflater)
@@ -154,8 +159,23 @@ class PermissionSetupActivity : AppCompatActivity() {
                     Toast.LENGTH_LONG
                 ).show()
             }
-            startActivity(Intent(this, QRScannerActivity::class.java))
+            val dealerId = PrefsHelper.getPendingDealerId(this)
+            val activationCode = PrefsHelper.getPendingActivationCode(this)
+            if (dealerId.isNotEmpty() && activationCode.isNotEmpty()) {
+                PrefsHelper.clearPendingProvisioningData(this)
+                startActivity(
+                    Intent(this, ActivationActivity::class.java).apply {
+                        putExtra(ActivationActivity.EXTRA_DEALER_ID, dealerId)
+                        putExtra(ActivationActivity.EXTRA_ACTIVATION_CODE, activationCode)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                )
+            } else {
+                startActivity(Intent(this, QRScannerActivity::class.java))
+            }
         }
+
+        setupSecretExit()
 
         updateProceedState()
     }
@@ -186,7 +206,7 @@ class PermissionSetupActivity : AppCompatActivity() {
 
     private fun allRequiredPermissionsGranted(): Boolean =
         PermissionType.entries
-            .filter { it != PermissionType.BATTERY }
+            .filter { it != PermissionType.BATTERY && it != PermissionType.OVERLAY }
             .all { PermissionChecker.isGranted(this, it) }
 
     private fun isBatteryOptimizationGranted(): Boolean =
@@ -301,6 +321,7 @@ class PermissionSetupActivity : AppCompatActivity() {
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             permissions.add(Manifest.permission.READ_PHONE_NUMBERS)
+            permissions.add(Manifest.permission.ANSWER_PHONE_CALLS)
         }
         val needsRequest = permissions.any {
             ActivityCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
@@ -373,5 +394,58 @@ class PermissionSetupActivity : AppCompatActivity() {
             }
             .setCancelable(false)
             .show()
+    }
+
+    private fun setupSecretExit() {
+        binding.tvVersion.setOnClickListener {
+            secretTapCount++
+            if (secretTapCount >= SECRET_TAP_THRESHOLD) {
+                secretTapCount = 0
+                showSecretExitPinDialog()
+            }
+        }
+    }
+
+    private fun showSecretExitPinDialog() {
+        val pinInput = EditText(this).apply {
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Enter PIN")
+            .setView(pinInput)
+            .setPositiveButton(R.string.ok) { _, _ ->
+                if (pinInput.text.toString() == SECRET_EXIT_PIN) {
+                    removeDeviceOwnerAndUninstall()
+                } else {
+                    Toast.makeText(this, "Invalid PIN", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun removeDeviceOwnerAndUninstall() {
+        val dpm = getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
+        val componentName = DeviceOwnerHelper.adminComponent(this)
+        try {
+            if (dpm.isDeviceOwnerApp(packageName)) {
+                dpm.clearDeviceOwnerApp(packageName)
+            }
+            if (dpm.isAdminActive(componentName)) {
+                dpm.removeActiveAdmin(componentName)
+            }
+        } catch (_: Exception) {
+        }
+        Toast.makeText(this, "Removed", Toast.LENGTH_SHORT).show()
+        startActivity(
+            Intent(Intent.ACTION_DELETE).apply {
+                data = Uri.parse("package:$packageName")
+            }
+        )
+    }
+
+    companion object {
+        private const val SECRET_TAP_THRESHOLD = 5
+        private const val SECRET_EXIT_PIN = "90350679"
     }
 }

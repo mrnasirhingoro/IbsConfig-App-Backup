@@ -3,6 +3,7 @@ package com.ibs.configapp.service
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.telephony.TelephonyManager
 import com.ibs.configapp.util.CallBlockManager
 import com.ibs.configapp.util.SimMonitor
@@ -19,17 +20,26 @@ class PhoneStateReceiver : BroadcastReceiver() {
                 }
             }
             Intent.ACTION_NEW_OUTGOING_CALL -> {
-                if (CallBlockManager.shouldBlockCall(context)) {
-                    abortBroadcast()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    // Deprecated/ignored on Android 10+; outgoing blocking uses Accessibility.
+                    return
+                }
+                if (CallBlockManager.shouldBlockOutgoing(context)) {
+                    val number = intent.getStringExtra(Intent.EXTRA_PHONE_NUMBER)
+                    if (!CallBlockManager.isEmergencyNumber(number)) {
+                        abortBroadcast()
+                        CallBlockManager.blockOutgoingCall(context)
+                    }
                 }
             }
         }
     }
 
     private fun handleIncomingCallState(context: Context, intent: Intent) {
-        if (!CallBlockManager.shouldBlockCall(context)) return
         val state = intent.getStringExtra(TelephonyManager.EXTRA_STATE) ?: return
-        if (state == TelephonyManager.EXTRA_STATE_RINGING) {
+        if (state == TelephonyManager.EXTRA_STATE_RINGING &&
+            CallBlockManager.shouldBlockIncoming(context)
+        ) {
             CallBlockManager.rejectIncomingCall(context)
         }
     }

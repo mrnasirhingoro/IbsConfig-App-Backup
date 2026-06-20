@@ -12,7 +12,7 @@ import com.ibs.configapp.DeviceManagementInfoActivity
 import com.ibs.configapp.R
 
 object NotificationHelper {
-    const val CHANNEL_ID = "ibs_finance_channel"
+    const val CHANNEL_ID = "ibs_finance_fg_silent"
     const val FCM_CHANNEL_ID = "ibs_fcm_channel"
     const val NOTIFICATION_ID = 1001
     const val FOREGROUND_ID = 1001
@@ -41,12 +41,13 @@ object NotificationHelper {
         val financeChannel = NotificationChannel(
             CHANNEL_ID,
             context.getString(R.string.device_management_title),
-            NotificationManager.IMPORTANCE_HIGH
+            NotificationManager.IMPORTANCE_NONE
         ).apply {
             description = context.getString(R.string.device_management_channel_desc)
-            setShowBadge(true)
-            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            setShowBadge(false)
+            lockscreenVisibility = Notification.VISIBILITY_SECRET
             enableVibration(false)
+            setVibrationPattern(null)
             setSound(null, null)
             setBypassDnd(false)
         }
@@ -59,6 +60,9 @@ object NotificationHelper {
         ).apply {
             description = context.getString(R.string.fcm_channel_desc)
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            enableVibration(false)
+            setVibrationPattern(null)
+            setSound(null, null)
         }
         nm.createNotificationChannel(fcmChannel)
     }
@@ -77,45 +81,45 @@ object NotificationHelper {
 
     fun buildProtectionNotification(context: Context): Notification {
         createChannel(context)
-        val title = getNotificationTitle(context)
-        val body = getNotificationBody(context)
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setContentTitle(" ")
+            .setContentText(" ")
             .setSmallIcon(android.R.drawable.ic_lock_lock)
-            .setOngoing(true)
+            .setOngoing(false)
             .setAutoCancel(false)
             .setOnlyAlertOnce(true)
             .setLocalOnly(true)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setSilent(true)
+            .setShowWhen(false)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setContentIntent(buildContentIntent(context))
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+            .setVibrate(null)
+            .setSound(null)
+            .setDefaults(0)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             builder.setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
         }
-        val notification = builder.build()
-        notification.flags = notification.flags or Notification.FLAG_ONGOING_EVENT or Notification.FLAG_NO_CLEAR
-        return notification
+        return builder.build()
     }
 
     fun buildMinimalNotification(context: Context): Notification {
         createChannel(context)
-        val title = getNotificationTitle(context)
-        val body = getNotificationBody(context)
-        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setContentTitle(title)
-            .setContentText(body)
+        return NotificationCompat.Builder(context, CHANNEL_ID)
+            .setContentTitle(" ")
+            .setContentText(" ")
             .setSmallIcon(android.R.drawable.ic_lock_lock)
-            .setOngoing(true)
+            .setOngoing(false)
             .setAutoCancel(false)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setContentIntent(buildContentIntent(context))
+            .setSilent(true)
+            .setShowWhen(false)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setVisibility(NotificationCompat.VISIBILITY_SECRET)
+            .setVibrate(null)
+            .setSound(null)
+            .setDefaults(0)
             .build()
-        notification.flags = notification.flags or Notification.FLAG_ONGOING_EVENT or Notification.FLAG_NO_CLEAR
-        return notification
     }
 
     fun showAlertNotification(context: Context, title: String, message: String) {
@@ -129,6 +133,9 @@ object NotificationHelper {
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
             .setContentIntent(buildContentIntent(context))
+            .setVibrate(null)
+            .setSound(null)
+            .setDefaults(0)
             .build()
         context.getSystemService(NotificationManager::class.java)
             .notify(ALERT_NOTIFICATION_ID, notification)

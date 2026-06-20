@@ -77,18 +77,58 @@ class QRScannerActivity : AppCompatActivity() {
     }
 
     private fun parseQr(text: String): Pair<String, String>? {
-        return try {
-            val json = JSONObject(text.trim())
-            val dealerId = json.optString("dealerId").ifBlank { json.optString("dealer_id") }
-            val code = json.optString("activationCode").ifBlank {
-                json.optString("activation_code")
-            }
-            if (dealerId.isBlank()) null else Pair(dealerId, code)
-        } catch (_: Exception) {
-            val parts = text.split("|", ",", ";")
-            if (parts.size >= 1 && parts[0].isNotBlank()) {
-                Pair(parts[0].trim(), parts.getOrNull(1)?.trim() ?: "")
-            } else null
+        val trimmed = text.trim().trim('\uFEFF')
+        if (trimmed.isBlank()) return null
+
+        parseActivationJson(trimmed)?.let { return it }
+
+        val pipeParts = trimmed.split("|").map { it.trim() }
+        if (pipeParts.size >= 2 && pipeParts[1].isNotBlank()) {
+            return Pair(pipeParts[0], pipeParts[1])
         }
+
+        return null
+    }
+
+    private fun parseActivationJson(text: String): Pair<String, String>? {
+        val jsonText = when {
+            text.startsWith("{") -> text
+            text.contains("{") && text.contains("}") -> {
+                text.substring(text.indexOf('{'), text.lastIndexOf('}') + 1)
+            }
+            else -> return null
+        }
+
+        return try {
+            val json = JSONObject(jsonText)
+            val activationCode = readJsonField(
+                json,
+                "activationCode",
+                "activation_code",
+                "serialKey",
+                "serial_key"
+            )
+            if (activationCode.isNullOrBlank()) return null
+
+            val dealerId = readJsonField(
+                json,
+                "dealerId",
+                "dealer_id",
+                "clientId"
+            ).orEmpty()
+
+            Pair(dealerId, activationCode)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun readJsonField(json: JSONObject, vararg keys: String): String? {
+        for (key in keys) {
+            if (!json.has(key) || json.isNull(key)) continue
+            val value = json.opt(key)?.toString()?.trim().orEmpty()
+            if (value.isNotEmpty() && value != "null") return value
+        }
+        return null
     }
 }

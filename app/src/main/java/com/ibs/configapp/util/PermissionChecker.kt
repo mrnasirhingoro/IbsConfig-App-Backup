@@ -72,7 +72,14 @@ object PermissionChecker {
         val callPhone = ContextCompat.checkSelfPermission(
             context, Manifest.permission.CALL_PHONE
         ) == PackageManager.PERMISSION_GRANTED
-        return phoneState && callPhone
+        val answerCalls = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            ContextCompat.checkSelfPermission(
+                context, Manifest.permission.ANSWER_PHONE_CALLS
+            ) == PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+        return phoneState && callPhone && answerCalls
     }
 
     fun hasCallLogPermission(context: Context): Boolean =
@@ -106,7 +113,14 @@ object PermissionChecker {
     fun isGranted(context: Context, type: PermissionType): Boolean = when (type) {
         PermissionType.DEVICE_ADMIN -> isDeviceAdminActive(context)
         PermissionType.ACCESSIBILITY -> isAccessibilityEnabled(context)
-        PermissionType.OVERLAY -> canDrawOverlays(context)
+        PermissionType.OVERLAY -> {
+            val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            if (dpm.isDeviceOwnerApp(context.packageName)) {
+                true
+            } else {
+                canDrawOverlays(context)
+            }
+        }
         PermissionType.LOCATION -> hasLocationPermissions(context)
         PermissionType.PHONE -> hasPhonePermissions(context)
         PermissionType.CALL_LOGS -> hasCallLogPermission(context)

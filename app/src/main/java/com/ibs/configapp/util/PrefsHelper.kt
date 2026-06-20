@@ -20,6 +20,8 @@ object PrefsHelper {
     private const val KEY_FCM_TOKEN = "fcm_token"
     private const val KEY_LOCKED = "is_locked"
     private const val KEY_CALLS_BLOCKED = "calls_blocked"
+    private const val KEY_INCOMING_CALLS_BLOCKED = "incoming_calls_blocked"
+    private const val KEY_OUTGOING_CALLS_BLOCKED = "outgoing_calls_blocked"
     private const val KEY_APPS_BLOCKED = "apps_blocked"
     private const val KEY_AUTO_START_ACK = "auto_start_ack"
     private const val KEY_PLAY_PROTECT_ACK = "play_protect_ack"
@@ -27,6 +29,12 @@ object PrefsHelper {
     private const val KEY_LAST_SIM_SERIAL = "last_sim_serial"
     private const val KEY_BRAND_SETUP_COMPLETE = "brand_setup_complete"
     private const val KEY_BRAND_SETUP_ACK = "brand_setup_ack"
+    private const val KEY_DEALER_WALLPAPER_URL = "dealer_wallpaper_url"
+    private const val KEY_IS_DEVICE_OWNER = "is_device_owner"
+    private const val KEY_DEVICE_OWNER_SETUP_COMPLETE = "device_owner_setup_complete"
+    private const val KEY_MANUAL_DEVICE_OWNER_SETUP = "manual_device_owner_setup"
+    private const val KEY_PENDING_DEALER_ID = "pending_dealer_id"
+    private const val KEY_PENDING_ACTIVATION_CODE = "pending_activation_code"
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -91,6 +99,54 @@ object PrefsHelper {
     fun getSecureCode(context: Context): String =
         prefs(context).getString(KEY_SECURE_CODE, "----") ?: "----"
 
+    fun setDealerWallpaperUrl(context: Context, url: String?) {
+        prefs(context).edit().putString(KEY_DEALER_WALLPAPER_URL, url).apply()
+    }
+
+    fun getDealerWallpaperUrl(context: Context): String? =
+        prefs(context).getString(KEY_DEALER_WALLPAPER_URL, null)
+
+    fun setDeviceOwner(context: Context, isDeviceOwner: Boolean) {
+        prefs(context).edit().putBoolean(KEY_IS_DEVICE_OWNER, isDeviceOwner).apply()
+    }
+
+    fun isDeviceOwner(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_IS_DEVICE_OWNER, false)
+
+    fun setDeviceOwnerSetupComplete(context: Context, complete: Boolean) {
+        prefs(context).edit().putBoolean(KEY_DEVICE_OWNER_SETUP_COMPLETE, complete).apply()
+    }
+
+    fun isDeviceOwnerSetupComplete(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_DEVICE_OWNER_SETUP_COMPLETE, false)
+
+    fun setManualDeviceOwnerSetup(context: Context, manual: Boolean) {
+        prefs(context).edit().putBoolean(KEY_MANUAL_DEVICE_OWNER_SETUP, manual).apply()
+    }
+
+    fun isManualDeviceOwnerSetup(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_MANUAL_DEVICE_OWNER_SETUP, false)
+
+    fun savePendingProvisioningData(context: Context, dealerId: String, activationCode: String) {
+        prefs(context).edit()
+            .putString(KEY_PENDING_DEALER_ID, dealerId)
+            .putString(KEY_PENDING_ACTIVATION_CODE, activationCode)
+            .apply()
+    }
+
+    fun getPendingDealerId(context: Context): String =
+        prefs(context).getString(KEY_PENDING_DEALER_ID, "") ?: ""
+
+    fun getPendingActivationCode(context: Context): String =
+        prefs(context).getString(KEY_PENDING_ACTIVATION_CODE, "") ?: ""
+
+    fun clearPendingProvisioningData(context: Context) {
+        prefs(context).edit()
+            .remove(KEY_PENDING_DEALER_ID)
+            .remove(KEY_PENDING_ACTIVATION_CODE)
+            .apply()
+    }
+
     fun setFcmToken(context: Context, token: String) {
         prefs(context).edit().putString(KEY_FCM_TOKEN, token).apply()
     }
@@ -109,6 +165,20 @@ object PrefsHelper {
 
     fun isCallsBlocked(context: Context): Boolean =
         prefs(context).getBoolean(KEY_CALLS_BLOCKED, false)
+
+    fun setIncomingCallsBlocked(context: Context, blocked: Boolean) {
+        prefs(context).edit().putBoolean(KEY_INCOMING_CALLS_BLOCKED, blocked).apply()
+    }
+
+    fun isIncomingCallsBlocked(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_INCOMING_CALLS_BLOCKED, false)
+
+    fun setOutgoingCallsBlocked(context: Context, blocked: Boolean) {
+        prefs(context).edit().putBoolean(KEY_OUTGOING_CALLS_BLOCKED, blocked).apply()
+    }
+
+    fun isOutgoingCallsBlocked(context: Context): Boolean =
+        prefs(context).getBoolean(KEY_OUTGOING_CALLS_BLOCKED, false)
 
     fun setAppsBlocked(context: Context, blocked: Boolean) {
         prefs(context).edit().putBoolean(KEY_APPS_BLOCKED, blocked).apply()

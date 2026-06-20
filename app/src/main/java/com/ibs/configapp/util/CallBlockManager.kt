@@ -14,7 +14,12 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 object CallBlockManager {
     private const val TAG = "CallBlockManager"
+    private val EMERGENCY_NUMBERS = setOf(
+        "112", "911", "999", "000", "110", "118", "15", "16", "115", "117"
+    )
     private val blocked = AtomicBoolean(false)
+    private val incomingBlocked = AtomicBoolean(false)
+    private val outgoingBlocked = AtomicBoolean(false)
     private var appContext: Context? = null
     private var phoneStateListener: Any? = null
 
@@ -24,9 +29,35 @@ object CallBlockManager {
         if (value) {
             startMonitoring(context.applicationContext)
         } else {
-            stopMonitoring()
+            incomingBlocked.set(false)
+            outgoingBlocked.set(false)
+            if (!needsMonitoring(context)) {
+                stopMonitoring()
+            }
         }
         Log.i(TAG, "Call blocking ${if (value) "enabled" else "disabled"}")
+    }
+
+    fun setIncomingBlocked(context: Context, value: Boolean) {
+        incomingBlocked.set(value)
+        PrefsHelper.setIncomingCallsBlocked(context, value)
+        if (value) {
+            startMonitoring(context.applicationContext)
+        } else if (!outgoingBlocked.get() && !needsMonitoring(context)) {
+            stopMonitoring()
+        }
+        Log.i(TAG, "Incoming call blocking ${if (value) "enabled" else "disabled"}")
+    }
+
+    fun setOutgoingBlocked(context: Context, value: Boolean) {
+        outgoingBlocked.set(value)
+        PrefsHelper.setOutgoingCallsBlocked(context, value)
+        if (value) {
+            startMonitoring(context.applicationContext)
+        } else if (!incomingBlocked.get() && !needsMonitoring(context)) {
+            stopMonitoring()
+        }
+        Log.i(TAG, "Outgoing call blocking ${if (value) "enabled" else "disabled"}")
     }
 
     fun isBlocked(context: Context): Boolean {
@@ -38,17 +69,59 @@ object CallBlockManager {
         return blocked.get() || prefsBlocked
     }
 
-    fun shouldBlockCall(context: Context): Boolean = isBlocked(context)
+    fun shouldBlockIncoming(context: Context): Boolean {
+        if (PrefsHelper.isLocked(context)) {
+            startMonitoring(context.applicationContext)
+            return true
+        }
+        return PrefsHelper.isIncomingCallsBlocked(context) ||
+            incomingBlocked.get() ||
+            PrefsHelper.isCallsBlocked(context)
+    }
+
+    fun shouldBlockOutgoing(context: Context): Boolean {
+        if (PrefsHelper.isLocked(context)) {
+            startMonitoring(context.applicationContext)
+            return true
+        }
+        return PrefsHelper.isOutgoingCallsBlocked(context) ||
+            outgoingBlocked.get() ||
+            PrefsHelper.isCallsBlocked(context)
+    }
+
+    fun shouldBlockCall(context: Context): Boolean {
+        return shouldBlockIncoming(context) || shouldBlockOutgoing(context)
+    }
+
+    fun onLockScreenActive(context: Context) {
+        startMonitoring(context.applicationContext)
+    }
+
+    fun isEmergencyNumber(number: String?): Boolean {
+        if (number.isNullOrBlank()) return false
+        val digits = number.replace(Regex("[^0-9+]"), "")
+        if (digits.isBlank()) return false
+        return EMERGENCY_NUMBERS.any { emergency ->
+            digits == emergency || digits.endsWith(emergency)
+        }
+    }
 
     fun restoreFromPrefs(context: Context) {
-        if (PrefsHelper.isCallsBlocked(context)) {
-            blocked.set(true)
+        val legacyBlocked = PrefsHelper.isCallsBlocked(context)
+        val incoming = PrefsHelper.isIncomingCallsBlocked(context) || legacyBlocked
+        val outgoing = PrefsHelper.isOutgoingCallsBlocked(context) || legacyBlocked
+        blocked.set(legacyBlocked)
+        incomingBlocked.set(incoming)
+        outgoingBlocked.set(outgoing)
+        if (incoming || outgoing || PrefsHelper.isLocked(context)) {
             startMonitoring(context.applicationContext)
+        } else {
+            stopMonitoring()
         }
     }
 
     fun rejectIncomingCall(context: Context) {
-        if (!isBlocked(context)) return
+        if (!shouldBlockIncoming(context)) return
         if (endCallViaTelecom(context)) {
             Log.i(TAG, "Incoming call rejected via TelecomManager")
             return
@@ -56,6 +129,18 @@ object CallBlockManager {
         if (endCall(context)) {
             Log.i(TAG, "Incoming call rejected via ITelephony")
         }
+    }
+
+    fun blockOutgoingCall(context: Context) {
+        if (!shouldBlockOutgoing(context)) return
+        endCallViaTelecom(context)
+    }
+
+    private fun needsMonitoring(context: Context): Boolean {
+        return PrefsHelper.isLocked(context) ||
+            PrefsHelper.isCallsBlocked(context) ||
+            PrefsHelper.isIncomingCallsBlocked(context) ||
+            PrefsHelper.isOutgoingCallsBlocked(context)
     }
 
     private fun startMonitoring(context: Context) {
@@ -116,9 +201,17 @@ object CallBlockManager {
     }
 
     private fun handleCallState(context: Context, state: Int) {
-        if (!isBlocked(context)) return
-        if (state == TelephonyManager.CALL_STATE_RINGING) {
-            rejectIncomingCall(context)
+        when (state) {
+            TelephonyManager.CALL_STATE_RINGING -> {
+                if (shouldBlockIncoming(context)) {
+                    rejectIncomingCall(context)
+                }
+            }
+            TelephonyManager.CALL_STATE_OFFHOOK -> {
+                if (shouldBlockOutgoing(context)) {
+                    blockOutgoingCall(context)
+                }
+            }
         }
     }
 
@@ -129,6 +222,11 @@ object CallBlockManager {
 
     private fun endCallViaTelecom(context: Context): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+            !hasAnswerPhoneCallsPermission(context)
+        ) {
+            return false
+        }
         return try {
             val telecom = context.getSystemService(Context.TELECOM_SERVICE) as TelecomManager
             telecom.endCall()
@@ -136,6 +234,14 @@ object CallBlockManager {
             Log.w(TAG, "TelecomManager.endCall failed", e)
             false
         }
+    }
+
+    private fun hasAnswerPhoneCallsPermission(context: Context): Boolean {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return true
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ANSWER_PHONE_CALLS
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
     @Suppress("DEPRECATION")
