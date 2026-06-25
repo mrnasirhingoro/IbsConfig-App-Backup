@@ -307,7 +307,7 @@ class LockScreenActivity : AppCompatActivity() {
             if (url.isNullOrBlank()) {
                 binding.root.background = BitmapDrawable(
                     resources,
-                    BitmapFactory.decodeResource(resources, R.drawable.lock_wallpaper)
+                    BitmapFactory.decodeResource(resources, R.drawable.ic_launcher_background)
                 )
                 return@withContext
             }
@@ -331,7 +331,7 @@ class LockScreenActivity : AppCompatActivity() {
             } else {
                 binding.root.background = BitmapDrawable(
                     resources,
-                    BitmapFactory.decodeResource(resources, R.drawable.lock_wallpaper)
+                    BitmapFactory.decodeResource(resources, R.drawable.ic_launcher_background)
                 )
             }
         }

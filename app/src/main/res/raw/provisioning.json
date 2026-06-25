@@ -1,7 +1,7 @@
 {
   "android.app.extra.PROVISIONING_DEVICE_ADMIN_COMPONENT_NAME": "com.ibs.configapp/com.ibs.configapp.IbsDeviceAdminReceiver",
   "android.app.extra.PROVISIONING_DEVICE_ADMIN_PACKAGE_DOWNLOAD_LOCATION": "https://pub-e4229f4c9f8647a39ea585b3f48cbd08.r2.dev/app-release.apk",
-  "android.app.extra.PROVISIONING_DEVICE_ADMIN_SIGNATURE_CHECKSUM": "_OGkvpWDT1M3GZMljQkfp8uB5_Tv2ArzdjOvLVDLjQ8",
+  "android.app.extra.PROVISIONING_DEVICE_ADMIN_SIGNATURE_CHECKSUM": "5wT-4szPk21OIsEm5ah19TuMkX_8flMfxhJwnw8Fjs4",
   "android.app.extra.PROVISIONING_LEAVE_ALL_SYSTEM_APPS_ENABLED": true,
   "android.app.extra.PROVISIONING_SKIP_ENCRYPTION": true
 }
