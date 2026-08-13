@@ -1,6 +1,14 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.google.services)
+}
+
+val localProperties = Properties()
+val localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localProperties.load(localPropertiesFile.inputStream())
 }
 
 android {
@@ -18,10 +26,10 @@ android {
 
     signingConfigs {
         create("release") {
-            storeFile = file("D:/ibs-release-key.jks")
-            storePassword = "IBS@2024"
-            keyAlias = "ibs-key"
-            keyPassword = "IBS@2024"
+            storeFile = file(localProperties.getProperty("RELEASE_STORE_FILE") ?: "")
+            storePassword = localProperties.getProperty("RELEASE_STORE_PASSWORD") ?: ""
+            keyAlias = localProperties.getProperty("RELEASE_KEY_ALIAS") ?: ""
+            keyPassword = localProperties.getProperty("RELEASE_KEY_PASSWORD") ?: ""
             enableV1Signing = true
             enableV2Signing = true
             enableV3Signing = true
