@@ -193,7 +193,8 @@ class DeviceOwnerSetupActivity : AppCompatActivity() {
             .setTitle("Enter PIN")
             .setView(pinInput)
             .setPositiveButton(R.string.ok) { _, _ ->
-                if (pinInput.text.toString() == SECRET_EXIT_PIN) {
+                val expectedPin = PrefsHelper.getDeviceSecretCode(this)
+                if (pinInput.text.toString().equals(expectedPin, ignoreCase = true)) {
                     removeDeviceOwnerAndUninstall()
                 } else {
                     Toast.makeText(this, "Invalid PIN", Toast.LENGTH_SHORT).show()
@@ -225,6 +226,5 @@ class DeviceOwnerSetupActivity : AppCompatActivity() {
 
     companion object {
         private const val SECRET_TAP_THRESHOLD = 5
-        private const val SECRET_EXIT_PIN = "90350679"
     }
 }

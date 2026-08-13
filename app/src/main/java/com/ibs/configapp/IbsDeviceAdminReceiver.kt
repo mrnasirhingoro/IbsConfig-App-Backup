@@ -47,21 +47,6 @@ class IbsDeviceAdminReceiver : DeviceAdminReceiver() {
             "android.app.action.DEVICE_OWNER_CHANGED" -> {
                 DeviceOwnerHelper.syncDeviceOwnerState(context)
             }
-            "android.app.action.PROVISIONING_SUCCESSFUL" -> {
-                DeviceOwnerHelper.syncDeviceOwnerState(context)
-                val extras = intent.getBundleExtra(
-                    "android.app.extra.PROVISIONING_ADMIN_EXTRAS_BUNDLE"
-                )
-                val dealerId = extras?.getString("dealerId") ?: ""
-                val activationCode = extras?.getString("activationCode") ?: ""
-                if (dealerId.isNotEmpty() && activationCode.isNotEmpty()) {
-                    PrefsHelper.savePendingProvisioningData(context, dealerId, activationCode)
-                }
-                val launchIntent = Intent(context, PermissionSetupActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                }
-                context.startActivity(launchIntent)
-            }
         }
     }
 }
