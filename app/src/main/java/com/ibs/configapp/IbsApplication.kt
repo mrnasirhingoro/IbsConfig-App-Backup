@@ -29,8 +29,12 @@ class IbsApplication : Application() {
                     .build()
             )
         }
-        if (FirebaseApp.getApps(this).isEmpty()) {
-            FirebaseApp.initializeApp(this)
+        try {
+            if (FirebaseApp.getApps(this).isEmpty()) {
+                FirebaseApp.initializeApp(this)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Firebase initialization failed", e)
         }
         FirebaseAuthHelper.verifyProjectConfig(this)
         Log.i(TAG, "IBS Config App started Firebase project ibs-system-cb7dc")

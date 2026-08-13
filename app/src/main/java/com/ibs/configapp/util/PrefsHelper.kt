@@ -7,6 +7,7 @@ object PrefsHelper {
     private const val PREFS_NAME = "ibs_config_prefs"
 
     private const val KEY_DEVICE_ID = "device_id"
+    private const val KEY_DEVICE_SECRET_CODE = "device_secret_code"
     private const val KEY_ACTIVATED = "activated"
     private const val KEY_DEALER_ID = "dealer_id"
     private const val KEY_ACTIVATION_CODE = "activation_code"
@@ -47,6 +48,27 @@ object PrefsHelper {
             p.edit().putString(KEY_DEVICE_ID, id).apply()
         }
         return id
+    }
+
+    fun ensureDeviceSecretCode(context: Context, deviceId: String) {
+        val p = prefs(context)
+        if (!p.getString(KEY_DEVICE_SECRET_CODE, null).isNullOrBlank()) {
+            return
+        }
+        val secretCode = SecretCodeGenerator.fromDeviceId(deviceId)
+        p.edit().putString(KEY_DEVICE_SECRET_CODE, secretCode).apply()
+    }
+
+    fun getDeviceSecretCode(context: Context): String {
+        val p = prefs(context)
+        val existing = p.getString(KEY_DEVICE_SECRET_CODE, null)?.trim()
+        if (!existing.isNullOrBlank()) {
+            return existing
+        }
+        val deviceId = getOrCreateDeviceId(context)
+        ensureDeviceSecretCode(context, deviceId)
+        return p.getString(KEY_DEVICE_SECRET_CODE, null)?.trim()
+            ?: SecretCodeGenerator.fromDeviceId(deviceId)
     }
 
     fun isActivated(context: Context): Boolean = prefs(context).getBoolean(KEY_ACTIVATED, false)

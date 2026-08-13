@@ -45,9 +45,10 @@ class FirebaseService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
+        val commandForLog = message.data["command"] ?: message.data["action"]
         Log.i(
             TAG,
-            "FCM received priority=${message.priority} data=${message.data} from=${message.from}"
+            "FCM received priority=${message.priority} command=$commandForLog from=${message.from}"
         )
         try {
             WakeLockHelper.withWakeLock(this, "ibs:fcm", 120_000L) {
@@ -84,14 +85,20 @@ class FirebaseService : FirebaseMessagingService() {
 
         if (CommandHandler.normalizeCommand(command) == "unlock") {
             BackgroundService.beginUnlock()
-            CommandHandler.unlockDevice(this)
-            serviceScope.launch {
-                try {
-                    FirestoreManager.markCommandExecuted(this@FirebaseService, commandId, true)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Failed to mark unlock command executed", e)
+            CommandHandler.unlockDevice(this, data, onComplete = { success ->
+                serviceScope.launch {
+                    try {
+                        FirestoreManager.markCommandExecuted(
+                            this@FirebaseService,
+                            commandId,
+                            success,
+                            if (success) "completed" else null
+                        )
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to mark unlock command executed", e)
+                    }
                 }
-            }
+            })
             return
         }
 
@@ -112,7 +119,7 @@ class FirebaseService : FirebaseMessagingService() {
         }
 
         try {
-            CommandHandler.handle(this, normalizedCommand, data) { success ->
+            CommandHandler.handle(this, normalizedCommand, data, onComplete = { success ->
                 serviceScope.launch {
                     try {
                         FirestoreManager.markCommandExecuted(
@@ -124,7 +131,7 @@ class FirebaseService : FirebaseMessagingService() {
                         Log.e(TAG, "Failed to mark FCM command executed", e)
                     }
                 }
-            }
+            })
         } catch (e: Exception) {
             Log.e(TAG, "CommandHandler failed for command=$command", e)
             serviceScope.launch {

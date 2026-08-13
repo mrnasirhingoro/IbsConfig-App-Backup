@@ -22,6 +22,9 @@ android {
             storePassword = "IBS@2024"
             keyAlias = "ibs-key"
             keyPassword = "IBS@2024"
+            enableV1Signing = true
+            enableV2Signing = true
+            enableV3Signing = true
         }
     }
 

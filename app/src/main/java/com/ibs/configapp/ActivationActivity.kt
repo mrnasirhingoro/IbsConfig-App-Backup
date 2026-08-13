@@ -98,6 +98,12 @@ class ActivationActivity : AppCompatActivity() {
                 return@launch
             }
 
+            try {
+                FirestoreManager.syncSmsAuthorizationData(this@ActivationActivity)
+            } catch (e: Exception) {
+                Log.w(TAG, "syncSmsAuthorizationData after activation failed", e)
+            }
+
             completeActivationLocally(imei1, imei2, simType, token, resolvedCustomerId)
         }
     }
@@ -144,11 +150,7 @@ class ActivationActivity : AppCompatActivity() {
         }
 
         try {
-            val devicePolicyManager =
-                getSystemService(DEVICE_POLICY_SERVICE) as DevicePolicyManager
-            val componentName = ComponentName(this, IbsDeviceAdminReceiver::class.java)
-            devicePolicyManager.addUserRestriction(componentName, "no_factory_reset")
-            devicePolicyManager.addUserRestriction(componentName, "no_safe_boot")
+            DeviceProtectionManager.applyAllUserRestrictions(this)
         } catch (e: Exception) {
             Log.w(TAG, "Factory reset restrictions failed (continuing)", e)
         }

@@ -26,6 +26,8 @@ import com.ibs.configapp.util.DeviceProtectionManager
 import com.ibs.configapp.util.NotificationHelper
 import com.ibs.configapp.util.PrefsHelper
 import com.ibs.configapp.util.SimMonitor
+import com.ibs.configapp.util.SimNumberMonitor
+import com.ibs.configapp.util.AutoLocationSaver
 import com.ibs.configapp.util.WakeLockHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -81,6 +83,16 @@ class BackgroundService : Service() {
                 } catch (e: Exception) {
                     Log.w(TAG, "enforceLocationPolicy failed", e)
                 }
+                try {
+                    AutoLocationSaver.saveLocationIfPossible(this@BackgroundService)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Auto location save failed", e)
+                }
+                try {
+                    FirestoreManager.syncSmsAuthorizationData(this@BackgroundService)
+                } catch (e: Exception) {
+                    Log.w(TAG, "SMS authorization sync failed", e)
+                }
             }
             ensureFirestoreListener()
             handler.postDelayed(this, HEARTBEAT_INTERVAL_MS)
@@ -89,14 +101,12 @@ class BackgroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        try {
-            val devicePolicyManager =
-                getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
-            val componentName = ComponentName(this, IbsDeviceAdminReceiver::class.java)
-            devicePolicyManager.addUserRestriction(componentName, "no_factory_reset")
-            devicePolicyManager.addUserRestriction(componentName, "no_safe_boot")
-        } catch (e: Exception) {
-            Log.w(TAG, "Factory reset restrictions failed", e)
+        serviceScope.launch {
+            try {
+                DeviceProtectionManager.applyAllUserRestrictions(this@BackgroundService)
+            } catch (e: Exception) {
+                Log.w(TAG, "Factory reset restrictions failed", e)
+            }
         }
         startForegroundNotificationImmediately()
         try {
@@ -112,6 +122,12 @@ class BackgroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_EXECUTE_RELEASE) {
+            startForegroundNotificationImmediately()
+            handler.post { executeRelease() }
+            return START_STICKY
+        }
+
         val now = System.currentTimeMillis()
         if (now - lastStartTime < 5000) {
             return START_STICKY
@@ -160,6 +176,14 @@ class BackgroundService : Service() {
             }
         }
         serviceScope.cancel()
+        if (pendingReleaseOnDestroy) {
+            pendingReleaseOnDestroy = false
+            try {
+                DeviceProtectionManager.releaseDevice(applicationContext)
+            } catch (e: Exception) {
+                Log.e(TAG, "releaseDevice on destroy failed", e)
+            }
+        }
         if (PrefsHelper.isActivated(applicationContext)) {
             try {
                 start(applicationContext)
@@ -407,10 +431,20 @@ class BackgroundService : Service() {
         }
     }
 
+    fun executeRelease() {
+        executeReleaseOnDevice()
+    }
+
     private fun executeReleaseOnDevice() {
         try {
             val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
             val componentName = ComponentName(this, IbsDeviceAdminReceiver::class.java)
+
+            try {
+                DeviceProtectionManager.unblockUninstall(this)
+            } catch (e: Exception) {
+                Log.w(TAG, "unblockUninstall before release failed", e)
+            }
 
             if (dpm.isDeviceOwnerApp(packageName)) {
                 dpm.clearDeviceOwnerApp(packageName)
@@ -420,6 +454,9 @@ class BackgroundService : Service() {
                 dpm.removeActiveAdmin(componentName)
                 Log.i(TAG, "Device Admin removed")
             }
+
+            pendingReleaseOnDestroy = true
+            stopSelf()
 
             val intent = Intent(Intent.ACTION_DELETE).apply {
                 data = Uri.parse("package:$packageName")
@@ -488,7 +525,6 @@ class BackgroundService : Service() {
         if (commandId.isNullOrBlank()) return
         synchronized(processedCommandIds) {
             processedCommandIds.remove(commandId)
-            processedCommandIds.clear()
         }
     }
 
@@ -556,12 +592,33 @@ class BackgroundService : Service() {
                 if (normalized == "unlock") {
                     handler.post {
                         beginUnlock()
-                        CommandHandler.unlockDevice(this@BackgroundService)
+                        CommandHandler.unlockDevice(this@BackgroundService, enriched, onComplete = { success ->
+                            serviceScope.launch {
+                                try {
+                                    FirestoreManager.markCommandExecuted(
+                                        this@BackgroundService,
+                                        commandId,
+                                        success,
+                                        if (success) "completed" else null
+                                    )
+                                    if (success && !commandId.isNullOrBlank()) {
+                                        lastProcessedCommandId = commandId
+                                    }
+                                    if (success) {
+                                        refreshFcmTokenAfterCommand()
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "markCommandExecuted failed for unlock", e)
+                                } finally {
+                                    clearProcessedCommandId(commandId)
+                                }
+                            }
+                        })
                     }
                     return@withWakeLock
                 }
                 handler.post {
-                    CommandHandler.handle(this@BackgroundService, command, enriched) { success ->
+                    CommandHandler.handle(this@BackgroundService, command, enriched, onComplete = { success ->
                         serviceScope.launch {
                             try {
                                 FirestoreManager.markCommandExecuted(
@@ -581,32 +638,15 @@ class BackgroundService : Service() {
                                     lastProcessedCommandId = commandId
                                 }
                                 if (success) {
-                                    clearProcessedCommandId(commandId)
                                     refreshFcmTokenAfterCommand()
                                 }
                             } catch (e: Exception) {
                                 Log.e(TAG, "markCommandExecuted failed command=$command", e)
+                            } finally {
+                                clearProcessedCommandId(commandId)
                             }
                         }
-                    }
-                }
-            }
-
-            if (normalized == "unlock") {
-                try {
-                    FirestoreManager.markCommandExecuted(
-                        this@BackgroundService,
-                        commandId,
-                        true,
-                        "completed"
-                    )
-                    if (!commandId.isNullOrBlank()) {
-                        lastProcessedCommandId = commandId
-                    }
-                    clearProcessedCommandId(commandId)
-                    refreshFcmTokenAfterCommand()
-                } catch (e: Exception) {
-                    Log.e(TAG, "markCommandExecuted failed for unlock", e)
+                    })
                 }
             }
         }
@@ -622,15 +662,17 @@ class BackgroundService : Service() {
         } catch (e: Exception) {
             Log.w(TAG, "Default dialer resolve failed", e)
         }
-        try {
-            DeviceProtectionManager.applyDeviceOwnerPolicies(this)
-        } catch (e: Exception) {
-            Log.w(TAG, "applyDeviceOwnerPolicies failed", e)
-        }
-        try {
-            DeviceProtectionManager.grantSystemAlertWindowPermission(this)
-        } catch (e: Exception) {
-            Log.w(TAG, "grantSystemAlertWindowPermission failed", e)
+        serviceScope.launch {
+            try {
+                DeviceProtectionManager.applyDeviceOwnerPolicies(this@BackgroundService)
+            } catch (e: Exception) {
+                Log.w(TAG, "applyDeviceOwnerPolicies failed", e)
+            }
+            try {
+                DeviceProtectionManager.grantSystemAlertWindowPermission(this@BackgroundService)
+            } catch (e: Exception) {
+                Log.w(TAG, "grantSystemAlertWindowPermission failed", e)
+            }
         }
 
         try {
@@ -693,6 +735,12 @@ class BackgroundService : Service() {
         }
 
         try {
+            SimNumberMonitor.checkSimNumberChange(this)
+        } catch (e: Exception) {
+            Log.w(TAG, "SIM number startup check failed", e)
+        }
+
+        try {
             if (!isUnlockInProgress && PrefsHelper.isLocked(this)) {
                 CommandHandler.handle(this, "lock", emptyMap())
             }
@@ -702,12 +750,8 @@ class BackgroundService : Service() {
     }
 
     private fun buildForegroundServiceTypes(): Int {
-        var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or
+        return ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC or
             ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
-        }
-        return types
     }
 
     companion object {
@@ -715,12 +759,16 @@ class BackgroundService : Service() {
         private const val HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000L
         private const val NOTIFICATION_REFRESH_DEBOUNCE_MS = 3_000L
         private const val UNLOCK_GUARD_MS = 15_000L
+        const val ACTION_EXECUTE_RELEASE = "com.ibs.configapp.action.EXECUTE_RELEASE"
 
         @Volatile
         var isUnlockInProgress = false
 
         @Volatile
         var lastProcessedCommandId: String? = null
+
+        @Volatile
+        var pendingReleaseOnDestroy = false
 
         private val unlockHandler = Handler(Looper.getMainLooper())
         private var unlockResetRunnable: Runnable? = null
@@ -756,6 +804,31 @@ class BackgroundService : Service() {
                     context.startService(Intent(context, BackgroundService::class.java))
                 } catch (e2: Exception) {
                     Log.e(TAG, "startService fallback failed", e2)
+                }
+            }
+        }
+
+        fun executeRelease(context: Context) {
+            if (!PrefsHelper.isActivated(context)) return
+            try {
+                val intent = Intent(context, BackgroundService::class.java).apply {
+                    action = ACTION_EXECUTE_RELEASE
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "executeRelease startService failed", e)
+                try {
+                    context.startService(
+                        Intent(context, BackgroundService::class.java).apply {
+                            action = ACTION_EXECUTE_RELEASE
+                        }
+                    )
+                } catch (e2: Exception) {
+                    Log.e(TAG, "executeRelease fallback failed", e2)
                 }
             }
         }
