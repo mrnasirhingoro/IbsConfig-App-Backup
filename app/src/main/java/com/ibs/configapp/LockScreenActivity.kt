@@ -1,31 +1,53 @@
 package com.ibs.configapp
 
 import android.app.admin.DevicePolicyManager
+import android.app.ActivityManager
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.graphics.Typeface
 import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.GradientDrawable
+import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowManager
+import android.widget.GridLayout
+import android.widget.ImageButton
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
+import androidx.core.widget.ImageViewCompat
+import com.google.android.material.button.MaterialButton
 import com.ibs.configapp.databinding.ActivityLockScreenBinding
 import com.ibs.configapp.firebase.FirestoreManager
+import com.ibs.configapp.firebase.LockScreenDealerContactInfo
 import com.ibs.configapp.service.BackgroundService
+import com.ibs.configapp.util.DeviceProtectionManager
 import com.ibs.configapp.util.PrefsHelper
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -40,6 +62,7 @@ class LockScreenActivity : AppCompatActivity() {
 
     private var receiversRegistered = false
     private var lastRelaunchTime = 0L
+    private var lockScreenDealerContactInfo: LockScreenDealerContactInfo? = null
 
     private val unlockReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -85,6 +108,8 @@ class LockScreenActivity : AppCompatActivity() {
         hideSystemUi()
         applyTouchLockdown()
         loadDealerWallpaper()
+        loadLockScreenContactsAndAccountInfo()
+        setupLockScreenAddonControls()
         binding.btnEmergencyCall.visibility = View.GONE
 
         binding.btnEmergencyCall.setOnClickListener {
@@ -345,6 +370,326 @@ class LockScreenActivity : AppCompatActivity() {
         binding.tvSecureCode.text = getString(R.string.secure_code_label) + ": " + secureCode
     }
 
+    private fun setupLockScreenAddonControls() {
+        binding.btnLockScreenContacts.setOnClickListener { showLockScreenContactsDialog() }
+        binding.btnLockScreenPaymentApps.setOnClickListener { showLockScreenPaymentAppsDialog() }
+        binding.btnCopyBankAccount.setOnClickListener { copyBankAccountNumberToClipboard() }
+    }
+
+    private fun loadLockScreenContactsAndAccountInfo() {
+        hideLockScreenAddonUi()
+        lifecycleScope.launch {
+            try {
+                val info = withContext(Dispatchers.IO) {
+                    FirestoreManager.fetchLockScreenDealerContactAndBankInfo(this@LockScreenActivity)
+                } ?: return@launch
+                lockScreenDealerContactInfo = info
+                applyLockScreenAddonUi(info)
+            } catch (e: Exception) {
+                android.util.Log.w(TAG, "loadLockScreenContactsAndAccountInfo failed", e)
+                hideLockScreenAddonUi()
+            }
+        }
+    }
+
+    private fun hideLockScreenAddonUi() {
+        binding.btnLockScreenContacts.visibility = View.GONE
+        binding.btnLockScreenPaymentApps.visibility = View.GONE
+        binding.layoutLockScreenBankInfo.visibility = View.GONE
+    }
+
+    private fun applyLockScreenAddonUi(info: LockScreenDealerContactInfo) {
+        val hasContact = !info.dealerNumber.isNullOrBlank() ||
+            !info.wasooliNumber.isNullOrBlank() ||
+            !info.managerNumber.isNullOrBlank()
+        binding.btnLockScreenContacts.visibility = if (hasContact) View.VISIBLE else View.GONE
+
+        binding.btnLockScreenPaymentApps.visibility = View.VISIBLE
+
+        val hasBankInfo = !info.bankAccountName.isNullOrBlank() ||
+            !info.bankAccountNumber.isNullOrBlank()
+        if (!hasBankInfo) {
+            binding.layoutLockScreenBankInfo.visibility = View.GONE
+            return
+        }
+        binding.layoutLockScreenBankInfo.visibility = View.VISIBLE
+        if (info.bankAccountName.isNullOrBlank()) {
+            binding.tvLockScreenBankName.visibility = View.GONE
+        } else {
+            binding.tvLockScreenBankName.visibility = View.VISIBLE
+            binding.tvLockScreenBankName.text = info.bankAccountName
+        }
+        if (info.bankAccountNumber.isNullOrBlank()) {
+            binding.tvLockScreenBankNumber.visibility = View.GONE
+            binding.btnCopyBankAccount.visibility = View.GONE
+        } else {
+            binding.tvLockScreenBankNumber.visibility = View.VISIBLE
+            binding.tvLockScreenBankNumber.text = info.bankAccountNumber
+            binding.btnCopyBankAccount.visibility = View.VISIBLE
+        }
+        applyBankPanelBranding(info)
+    }
+
+    private fun resolveBrandColorInt(info: LockScreenDealerContactInfo?): Int =
+        parseColorOrDefault(info?.brandColor, DEFAULT_BRAND_COLOR_HEX)
+
+    private fun resolveSecondaryColorInt(info: LockScreenDealerContactInfo?): Int =
+        parseColorOrDefault(info?.secondaryColor, DEFAULT_SECONDARY_COLOR_HEX)
+
+    private fun parseColorOrDefault(hex: String?, defaultHex: String): Int {
+        return try {
+            Color.parseColor(hex?.trim()?.takeIf { it.isNotEmpty() } ?: defaultHex)
+        } catch (_: Exception) {
+            Color.parseColor(defaultHex)
+        }
+    }
+
+    private fun applyBankPanelBranding(info: LockScreenDealerContactInfo) {
+        val brand = resolveBrandColorInt(info)
+        binding.layoutLockScreenBankInfo.background = GradientDrawable().apply {
+            cornerRadius = dpToPx(8).toFloat()
+            setColor(Color.argb(30, Color.red(brand), Color.green(brand), Color.blue(brand)))
+        }
+        ImageViewCompat.setImageTintList(
+            binding.btnCopyBankAccount,
+            ColorStateList.valueOf(resolveSecondaryColorInt(info))
+        )
+    }
+
+    private fun showProfessionalLockScreenDialog(title: CharSequence, content: View?) {
+        val info = lockScreenDealerContactInfo
+        val brandColor = resolveBrandColorInt(info)
+        val secondaryColor = resolveSecondaryColorInt(info)
+
+        val root = layoutInflater.inflate(R.layout.dialog_lock_screen_professional, null)
+        root.findViewById<View>(R.id.dialogLockScreenHeader).setBackgroundColor(brandColor)
+        root.findViewById<TextView>(R.id.tvDialogLockScreenTitle).text = title
+        val contentContainer = root.findViewById<LinearLayout>(R.id.dialogLockScreenContent)
+        if (content != null) {
+            contentContainer.addView(content)
+        }
+        val closeBtn = root.findViewById<MaterialButton>(R.id.btnDialogLockScreenClose)
+        closeBtn.backgroundTintList = ColorStateList.valueOf(secondaryColor)
+
+        val dialog = AlertDialog.Builder(this).setView(root).create()
+        dialog.window?.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        closeBtn.setOnClickListener { dialog.dismiss() }
+        dialog.show()
+    }
+
+    private fun showLockScreenContactsDialog() {
+        val info = lockScreenDealerContactInfo ?: return
+        val secondaryColor = resolveSecondaryColorInt(info)
+        val rows = listOf(
+            ContactDialogRow(R.string.lock_screen_contact_dealer, info.dealerName, info.dealerNumber),
+            ContactDialogRow(R.string.lock_screen_contact_wasooli, info.wasooliName, info.wasooliNumber),
+            ContactDialogRow(R.string.lock_screen_contact_manager, info.managerName, info.managerNumber)
+        ).filter { !it.number.isNullOrBlank() }
+        if (rows.isEmpty()) return
+
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+        rows.forEach { row ->
+            val number = row.number!!
+            container.addView(
+                buildContactDialogRow(
+                    formatContactDialogLabel(row.displayName, number, row.fallbackLabelRes),
+                    number,
+                    secondaryColor
+                )
+            )
+        }
+
+        showProfessionalLockScreenDialog(getString(R.string.lock_screen_contacts_dialog_title), container)
+    }
+
+    private fun formatContactDialogLabel(displayName: String?, phoneNumber: String, fallbackLabelRes: Int): String {
+        val name = displayName?.trim().orEmpty()
+        return if (name.isNotEmpty()) {
+            "$name: $phoneNumber"
+        } else {
+            getString(fallbackLabelRes, phoneNumber)
+        }
+    }
+
+    private data class ContactDialogRow(
+        val fallbackLabelRes: Int,
+        val displayName: String?,
+        val number: String?
+    )
+
+    private fun buildContactDialogRow(label: String, phoneNumber: String, callAccentColor: Int): View {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            val bottom = dpToPx(8)
+            setPadding(0, bottom, 0, bottom)
+        }
+        val labelView = TextView(this).apply {
+            text = label
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+            setTextColor(Color.parseColor("#212121"))
+            textSize = 15f
+        }
+        val callButton = TextView(this).apply {
+            text = getString(R.string.lock_screen_call)
+            setTextColor(callAccentColor)
+            setTypeface(typeface, Typeface.BOLD)
+            setPadding(dpToPx(12), dpToPx(8), dpToPx(12), dpToPx(8))
+            setOnClickListener { dialPhoneNumber(phoneNumber) }
+        }
+        row.addView(labelView)
+        row.addView(callButton)
+        return row
+    }
+
+    private fun showLockScreenPaymentAppsDialog() {
+        val installed = PAYMENT_APP_PACKAGES.mapNotNull { packageName ->
+            if (!isPackageInstalled(packageName)) return@mapNotNull null
+            try {
+                val appInfo = packageManager.getApplicationInfo(packageName, 0)
+                PaymentAppEntry(
+                    packageName = packageName,
+                    label = packageManager.getApplicationLabel(appInfo).toString(),
+                    icon = packageManager.getApplicationIcon(appInfo)
+                )
+            } catch (e: Exception) {
+                android.util.Log.w(TAG, "Payment app info failed pkg=$packageName", e)
+                null
+            }
+        }
+
+        if (installed.isEmpty()) {
+            val messageView = TextView(this).apply {
+                text = getString(R.string.lock_screen_no_payment_apps)
+                setTextColor(Color.parseColor("#616161"))
+                textSize = 15f
+            }
+            showProfessionalLockScreenDialog(
+                getString(R.string.lock_screen_payment_apps_dialog_title),
+                messageView
+            )
+            return
+        }
+
+        val grid = GridLayout(this).apply {
+            columnCount = 3
+        }
+        installed.forEach { entry ->
+            grid.addView(buildPaymentAppCell(entry))
+        }
+
+        showProfessionalLockScreenDialog(
+            getString(R.string.lock_screen_payment_apps_dialog_title),
+            grid
+        )
+    }
+
+    private fun buildPaymentAppCell(entry: PaymentAppEntry): View {
+        val cell = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            val margin = dpToPx(8)
+            layoutParams = GridLayout.LayoutParams().apply {
+                width = dpToPx(96)
+                height = ViewGroup.LayoutParams.WRAP_CONTENT
+                setMargins(margin, margin, margin, margin)
+            }
+            setOnClickListener { launchPaymentApp(entry.packageName) }
+        }
+        val iconView = ImageView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dpToPx(48), dpToPx(48))
+            setImageDrawable(entry.icon)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+        }
+        val labelView = TextView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dpToPx(4) }
+            text = entry.label
+            gravity = Gravity.CENTER_HORIZONTAL
+            setTextColor(Color.parseColor("#212121"))
+            textSize = 11f
+            maxLines = 2
+        }
+        cell.addView(iconView)
+        cell.addView(labelView)
+        return cell
+    }
+
+    private fun copyBankAccountNumberToClipboard() {
+        val number = lockScreenDealerContactInfo?.bankAccountNumber?.trim().orEmpty()
+        if (number.isEmpty()) return
+        try {
+            val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+            clipboard.setPrimaryClip(ClipData.newPlainText("bank_account_number", number))
+            Toast.makeText(this, R.string.lock_screen_account_copied, Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "copyBankAccountNumberToClipboard failed", e)
+        }
+    }
+
+    private fun dialPhoneNumber(number: String) {
+        try {
+            val sanitized = number.trim()
+            if (sanitized.isEmpty()) return
+            startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$sanitized")))
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "dialPhoneNumber failed", e)
+            Toast.makeText(this, R.string.lock_screen_dial_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun launchPaymentApp(packageName: String) {
+        try {
+            val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
+            if (launchIntent == null) {
+                Toast.makeText(this, R.string.lock_screen_no_payment_apps, Toast.LENGTH_SHORT).show()
+                return
+            }
+            launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(launchIntent)
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "launchPaymentApp failed pkg=$packageName", e)
+        }
+    }
+
+    private fun isPackageInstalled(packageName: String): Boolean {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getPackageInfo(
+                    packageName,
+                    PackageManager.PackageInfoFlags.of(0)
+                )
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, 0)
+            }
+            true
+        } catch (_: PackageManager.NameNotFoundException) {
+            false
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "isPackageInstalled failed pkg=$packageName", e)
+            false
+        }
+    }
+
+    private fun dpToPx(dp: Int): Int {
+        return TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_DIP,
+            dp.toFloat(),
+            resources.displayMetrics
+        ).toInt()
+    }
+
+    private data class PaymentAppEntry(
+        val packageName: String,
+        val label: String,
+        val icon: android.graphics.drawable.Drawable
+    )
+
     private fun hideSystemUi() {
         try {
             WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -371,13 +716,29 @@ class LockScreenActivity : AppCompatActivity() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 val dpm = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+                val admin = ComponentName(this, IbsDeviceAdminReceiver::class.java)
                 if (dpm.isDeviceOwnerApp(packageName)) {
                     dpm.setLockTaskPackages(
-                        ComponentName(this, IbsDeviceAdminReceiver::class.java),
-                        arrayOf(packageName)
+                        admin,
+                        DeviceProtectionManager.buildLockTaskAllowedPackages(
+                            this,
+                            PAYMENT_APP_PACKAGES
+                        )
                     )
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                        dpm.setLockTaskFeatures(admin, 0)
+                    }
                 }
                 startLockTask()
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    val lockTaskState = (getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager)
+                        .lockTaskModeState
+                    android.util.Log.i(
+                        TAG,
+                        "startLockTask invoked: lockTaskModeState=$lockTaskState " +
+                            "(LOCK_TASK_MODE_LOCKED=${ActivityManager.LOCK_TASK_MODE_LOCKED})"
+                    )
+                }
                 lockTaskActive = true
             }
         } catch (e: Exception) {
@@ -400,7 +761,7 @@ class LockScreenActivity : AppCompatActivity() {
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         return try {
-            if (isTouchOnEmergencyButton(ev)) {
+            if (isTouchOnEmergencyButton(ev) || isTouchOnLockScreenAddon(ev)) {
                 super.dispatchTouchEvent(ev)
             } else {
                 true
@@ -408,6 +769,26 @@ class LockScreenActivity : AppCompatActivity() {
         } catch (e: Exception) {
             android.util.Log.w(TAG, "dispatchTouchEvent failed", e)
             true
+        }
+    }
+
+    private fun isTouchOnLockScreenAddon(ev: MotionEvent): Boolean {
+        val targets = listOf(
+            binding.btnLockScreenContacts,
+            binding.btnLockScreenPaymentApps,
+            binding.btnCopyBankAccount,
+            binding.layoutLockScreenBankInfo
+        )
+        val x = ev.rawX
+        val y = ev.rawY
+        return targets.any { view ->
+            if (view.visibility != View.VISIBLE) return@any false
+            val location = IntArray(2)
+            view.getLocationOnScreen(location)
+            x >= location[0] &&
+                x <= location[0] + view.width &&
+                y >= location[1] &&
+                y <= location[1] + view.height
         }
     }
 
@@ -478,6 +859,20 @@ class LockScreenActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "LockScreenActivity"
+        private const val DEFAULT_BRAND_COLOR_HEX = "#0C447C"
+        private const val DEFAULT_SECONDARY_COLOR_HEX = "#1D9E75"
+
+        /** Package names to verify on real devices if an app does not appear. */
+        private val PAYMENT_APP_PACKAGES = listOf(
+            "com.techlogix.mobilinkcustomer",
+            "pk.com.telenor.phoenix",
+            "com.nayapay.nayapay",
+            "com.sadapay.app",
+            "com.hbl.android",
+            "com.mbl.mib",
+            "com.ubldigital.omni",
+            "com.mcb.live"
+        )
 
         const val ACTION_UNLOCK_DEVICE = "com.ibs.configapp.UNLOCK_DEVICE"
         const val ACTION_UNLOCK = "com.ibs.configapp.ACTION_UNLOCK"
