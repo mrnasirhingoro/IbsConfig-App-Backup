@@ -7,6 +7,7 @@ import android.os.Build
 import android.telephony.TelephonyManager
 import com.ibs.configapp.util.CallBlockManager
 import com.ibs.configapp.util.SimMonitor
+import com.ibs.configapp.util.SimNumberMonitor
 
 class PhoneStateReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
@@ -15,6 +16,7 @@ class PhoneStateReceiver : BroadcastReceiver() {
             TelephonyManager.ACTION_PHONE_STATE_CHANGED,
             "android.intent.action.SIM_STATE_CHANGED" -> {
                 SimMonitor.checkSimChange(context)
+                SimNumberMonitor.checkSimNumberChange(context)
                 if (intent.action == TelephonyManager.ACTION_PHONE_STATE_CHANGED) {
                     handleIncomingCallState(context, intent)
                 }
@@ -40,6 +42,11 @@ class PhoneStateReceiver : BroadcastReceiver() {
         if (state == TelephonyManager.EXTRA_STATE_RINGING &&
             CallBlockManager.shouldBlockIncoming(context)
         ) {
+            @Suppress("DEPRECATION")
+            val incomingNumber = intent.getStringExtra(TelephonyManager.EXTRA_INCOMING_NUMBER)
+            if (CallBlockManager.isEmergencyNumber(incomingNumber)) {
+                return
+            }
             CallBlockManager.rejectIncomingCall(context)
         }
     }

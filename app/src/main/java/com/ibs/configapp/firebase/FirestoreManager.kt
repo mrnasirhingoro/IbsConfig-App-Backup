@@ -11,15 +11,22 @@ import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.firestore.FirebaseFirestoreSettings
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.MetadataChanges
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.SetOptions
 import com.ibs.configapp.util.PrefsHelper
 import kotlinx.coroutines.tasks.await
+import org.json.JSONArray
 
 object FirestoreManager {
     private const val TAG = "FirestoreManager"
     private const val COL_DEVICES = "devices"
     private const val COL_SIM_CHANGE = "simChangeLogs"
     private const val COL_DEVICE_LOCATIONS = "deviceLocations"
+    private const val COL_SYSTEM_CONFIG = "systemConfig"
+    private const val DOC_MASTER_NUMBER = "masterNumber"
+    private const val PREFS_SMS_AUTH = "ibs_config_prefs"
+    private const val PREF_KEY_MASTER_NUMBER = "master_number"
+    private const val PREF_KEY_AUTHORIZED_NUMBERS = "authorized_numbers"
 
     private val db: FirebaseFirestore by lazy {
         FirebaseFirestore.getInstance().apply {
@@ -139,6 +146,11 @@ object FirestoreManager {
         val code = activationCode?.trim().orEmpty()
         val customerId = resolveCustomerId(dealerId, code)
         val deviceId = PrefsHelper.getOrCreateDeviceId(context)
+        try {
+            PrefsHelper.ensureDeviceSecretCode(context, deviceId)
+        } catch (e: Exception) {
+            Log.w(TAG, "ensureDeviceSecretCode failed", e)
+        }
         val data = hashMapOf<String, Any>(
             "dealerId" to dealerId,
             "customerId" to customerId,
@@ -388,6 +400,33 @@ object FirestoreManager {
         }
     }
 
+    suspend fun fetchLockScreenDealerContactAndBankInfo(
+        context: Context
+    ): LockScreenDealerContactInfo? {
+        val dealerId = PrefsHelper.getDealerId(context)?.trim().orEmpty()
+        if (dealerId.isEmpty()) return null
+        return try {
+            ensureAnonymousAuth()
+            val snap = db.collection("dealers").document(dealerId).get().await()
+            if (!snap.exists()) return null
+            LockScreenDealerContactInfo(
+                dealerNumber = snap.getString("lockScreenDealerNumber")?.trim()?.takeIf { it.isNotEmpty() },
+                wasooliNumber = snap.getString("lockScreenWasooliNumber")?.trim()?.takeIf { it.isNotEmpty() },
+                managerNumber = snap.getString("lockScreenManagerNumber")?.trim()?.takeIf { it.isNotEmpty() },
+                dealerName = snap.getString("lockScreenDealerName")?.trim()?.takeIf { it.isNotEmpty() },
+                wasooliName = snap.getString("lockScreenWasooliName")?.trim()?.takeIf { it.isNotEmpty() },
+                managerName = snap.getString("lockScreenManagerName")?.trim()?.takeIf { it.isNotEmpty() },
+                bankAccountName = snap.getString("bankAccountName")?.trim()?.takeIf { it.isNotEmpty() },
+                bankAccountNumber = snap.getString("bankAccountNumber")?.trim()?.takeIf { it.isNotEmpty() },
+                brandColor = snap.getString("brandColor")?.trim()?.takeIf { it.isNotEmpty() },
+                secondaryColor = snap.getString("secondaryColor")?.trim()?.takeIf { it.isNotEmpty() }
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "fetchLockScreenDealerContactAndBankInfo failed dealerId=$dealerId", e)
+            null
+        }
+    }
+
     /** Load dealer display name from Firestore dealers/{dealerId} and cache locally. */
     suspend fun fetchAndCacheDealerName(context: Context): String {
         val dealerId = PrefsHelper.getDealerId(context)
@@ -472,6 +511,100 @@ object FirestoreManager {
                     "simAlert" to true
                 )
             ).await()
+    }
+
+    /**
+     * Caches SMS command authorization from Firestore into [PREFS_SMS_AUTH] for [SmsCommandReceiver].
+     * Dealer numbers: lockScreenDealerNumber, lockScreenWasooliNumber, lockScreenManagerNumber on dealers/{dealerId}.
+     * System master override: systemConfig/masterNumber field [masterNumber].
+     */
+    suspend fun syncSmsAuthorizationData(context: Context) {
+        if (!PrefsHelper.isActivated(context)) return
+        val dealerId = PrefsHelper.getDealerId(context)?.trim().orEmpty()
+        if (dealerId.isEmpty()) {
+            Log.d(TAG, "syncSmsAuthorizationData skipped: no dealerId")
+            return
+        }
+        try {
+            ensureAnonymousAuth()
+            val editor = context.getSharedPreferences(PREFS_SMS_AUTH, Context.MODE_PRIVATE).edit()
+
+            try {
+                val dealerSnap = db.collection("dealers").document(dealerId).get().await()
+                if (dealerSnap.exists()) {
+                    val numbers = lockScreenContactNumbersForSms(dealerSnap)
+                    if (numbers.isNotEmpty()) {
+                        editor.putString(PREF_KEY_AUTHORIZED_NUMBERS, JSONArray(numbers).toString())
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "syncSmsAuthorizationData dealer fetch failed", e)
+            }
+
+            try {
+                val masterSnap = db.collection(COL_SYSTEM_CONFIG).document(DOC_MASTER_NUMBER).get().await()
+                if (masterSnap.exists()) {
+                    val master = masterSnap.getString("masterNumber")
+                    if (!master.isNullOrBlank()) {
+                        editor.putString(PREF_KEY_MASTER_NUMBER, master.trim())
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "syncSmsAuthorizationData masterNumber fetch failed", e)
+            }
+
+            editor.apply()
+            Log.d(TAG, "syncSmsAuthorizationData completed dealerId=$dealerId")
+        } catch (e: Exception) {
+            Log.w(TAG, "syncSmsAuthorizationData failed", e)
+        }
+    }
+
+    private fun lockScreenContactNumbersForSms(snapshot: DocumentSnapshot): List<String> {
+        val fields = listOf(
+            "lockScreenDealerNumber",
+            "lockScreenWasooliNumber",
+            "lockScreenManagerNumber"
+        )
+        return fields.mapNotNull { field ->
+            snapshot.getString(field)?.trim()?.takeIf { it.isNotEmpty() }
+        }.distinct()
+    }
+
+    suspend fun syncSimNumberIfChanged(context: Context, detectedNumber: String) {
+        val normalized = detectedNumber.trim()
+        if (normalized.isEmpty()) return
+
+        try {
+            ensureAnonymousAuth()
+            val deviceId = PrefsHelper.getOrCreateDeviceId(context)
+            val snapshot = db.collection(COL_DEVICES).document(deviceId).get().await()
+            val storedNumber = snapshot.getString("currentSimNumber")
+
+            if (storedNumber == normalized) {
+                Log.d(TAG, "SIM number unchanged for deviceId=$deviceId")
+                return
+            }
+
+            val updates = mutableMapOf<String, Any>(
+                "currentSimNumber" to normalized,
+                "simNumberUpdatedAt" to FieldValue.serverTimestamp(),
+                "simChangeAlertPending" to true
+            )
+            if (!storedNumber.isNullOrBlank()) {
+                updates["previousSimNumber"] = storedNumber
+            }
+
+            db.collection(COL_DEVICES).document(deviceId)
+                .set(updates, SetOptions.merge())
+                .await()
+            Log.i(
+                TAG,
+                "SIM number synced for deviceId=$deviceId previous=${storedNumber ?: "none"} current=$normalized"
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "syncSimNumberIfChanged failed", e)
+        }
     }
 
     suspend fun saveLocation(context: Context, location: Location) {
