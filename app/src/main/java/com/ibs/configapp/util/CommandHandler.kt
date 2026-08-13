@@ -51,7 +51,8 @@ object CommandHandler {
         context: Context,
         command: String,
         data: Map<String, Any?>,
-        onComplete: ((Boolean) -> Unit)? = null
+        onComplete: ((Boolean) -> Unit)? = null,
+        reportLocalSuccessOnly: Boolean = false
     ) {
         val normalized = normalizeCommand(command)
         Log.i(TAG, "Executing command raw=$command normalized=$normalized")
@@ -63,15 +64,15 @@ object CommandHandler {
                 when (normalized) {
                     "lock" -> {
                         asyncCompletion = true
-                        lockDevice(context, data) { lockSuccess ->
+                        lockDevice(context, data, { lockSuccess ->
                             mainHandler.post { onComplete?.invoke(lockSuccess) }
-                        }
+                        }, reportLocalSuccessOnly)
                     }
                     "unlock" -> {
                         asyncCompletion = true
-                        unlockDevice(context, data) { unlockSuccess ->
+                        unlockDevice(context, data, { unlockSuccess ->
                             mainHandler.post { onComplete?.invoke(unlockSuccess) }
-                        }
+                        }, reportLocalSuccessOnly)
                     }
                     "get_location" -> {
                         asyncCompletion = true
@@ -83,31 +84,39 @@ object CommandHandler {
                     "block_incoming" -> {
                         CallBlockManager.setIncomingBlocked(context, true)
                         PrefsHelper.setIncomingCallsBlocked(context, true)
+                        asyncCompletion = true
                         CoroutineScope(Dispatchers.IO).launch {
-                            try {
+                            val success = try {
                                 FirestoreManager.updateCallBlockStatus(
                                     context,
                                     incomingBlocked = true,
                                     outgoingBlocked = PrefsHelper.isOutgoingCallsBlocked(context)
                                 )
+                                true
                             } catch (e: Exception) {
                                 Log.e(TAG, "updateCallBlockStatus failed for block_incoming", e)
+                                false
                             }
+                            mainHandler.post { onComplete?.invoke(success) }
                         }
                     }
                     "block_outgoing" -> {
                         CallBlockManager.setOutgoingBlocked(context, true)
                         PrefsHelper.setOutgoingCallsBlocked(context, true)
+                        asyncCompletion = true
                         CoroutineScope(Dispatchers.IO).launch {
-                            try {
+                            val success = try {
                                 FirestoreManager.updateCallBlockStatus(
                                     context,
                                     incomingBlocked = PrefsHelper.isIncomingCallsBlocked(context),
                                     outgoingBlocked = true
                                 )
+                                true
                             } catch (e: Exception) {
                                 Log.e(TAG, "updateCallBlockStatus failed for block_outgoing", e)
+                                false
                             }
+                            mainHandler.post { onComplete?.invoke(success) }
                         }
                     }
                     "unblock_calls" -> {
@@ -115,60 +124,116 @@ object CommandHandler {
                         PrefsHelper.setIncomingCallsBlocked(context, false)
                         PrefsHelper.setOutgoingCallsBlocked(context, false)
                         PrefsHelper.setCallsBlocked(context, false)
+                        asyncCompletion = true
                         CoroutineScope(Dispatchers.IO).launch {
-                            try {
+                            val success = try {
                                 FirestoreManager.updateCallBlockStatus(
                                     context,
                                     incomingBlocked = false,
                                     outgoingBlocked = false
                                 )
+                                true
                             } catch (e: Exception) {
                                 Log.e(TAG, "updateCallBlockStatus failed for unblock_calls", e)
+                                false
                             }
+                            mainHandler.post { onComplete?.invoke(success) }
                         }
                     }
                     "block_apps" -> {
                         PrefsHelper.setAppsBlocked(context, true)
                         asyncCompletion = true
                         CoroutineScope(Dispatchers.IO).launch {
-                            try {
+                            val success = try {
                                 val deviceId = PrefsHelper.getOrCreateDeviceId(context)
                                 FirebaseFirestore.getInstance()
                                     .collection("devices")
                                     .document(deviceId)
                                     .update(
                                         mapOf(
-                                            "appsBlocked" to true,
-                                            "commandStatus" to "completed"
+                                            "appsBlocked" to true
                                         )
                                     )
                                     .await()
+                                true
                             } catch (e: Exception) {
                                 Log.e(TAG, "blockApps Firestore update failed", e)
+                                false
                             }
-                            mainHandler.post { onComplete?.invoke(true) }
+                            mainHandler.post { onComplete?.invoke(success) }
                         }
                     }
                     "unblock_apps" -> {
                         PrefsHelper.setAppsBlocked(context, false)
                         asyncCompletion = true
                         CoroutineScope(Dispatchers.IO).launch {
-                            try {
+                            val success = try {
                                 val deviceId = PrefsHelper.getOrCreateDeviceId(context)
                                 FirebaseFirestore.getInstance()
                                     .collection("devices")
                                     .document(deviceId)
                                     .update(
                                         mapOf(
-                                            "appsBlocked" to false,
-                                            "commandStatus" to "completed"
+                                            "appsBlocked" to false
                                         )
                                     )
                                     .await()
+                                true
                             } catch (e: Exception) {
                                 Log.e(TAG, "unblockApps Firestore update failed", e)
+                                false
                             }
-                            mainHandler.post { onComplete?.invoke(true) }
+                            mainHandler.post { onComplete?.invoke(success) }
+                        }
+                    }
+                    "set_reminder_wallpaper" -> {
+                        asyncCompletion = true
+                        CoroutineScope(Dispatchers.IO).launch {
+                            val imageUrl = data["imageUrl"] as? String
+                            val wallpaperSuccess = try {
+                                ReminderWallpaperHelper.setFromUrl(context, imageUrl)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "set_reminder_wallpaper failed", e)
+                                false
+                            }
+                            mainHandler.post { onComplete?.invoke(wallpaperSuccess) }
+                        }
+                    }
+                    "remove_reminder_wallpaper" -> {
+                        asyncCompletion = true
+                        CoroutineScope(Dispatchers.IO).launch {
+                            val clearSuccess = try {
+                                ReminderWallpaperHelper.clearReminderWallpaper(context)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "remove_reminder_wallpaper failed", e)
+                                false
+                            }
+                            mainHandler.post { onComplete?.invoke(clearSuccess) }
+                        }
+                    }
+                    "payment_reminder_notification" -> {
+                        asyncCompletion = true
+                        CoroutineScope(Dispatchers.IO).launch {
+                            val notifySuccess = try {
+                                val message = data["message"] as? String
+                                if (message.isNullOrBlank()) {
+                                    Log.w(TAG, "payment_reminder_notification missing message")
+                                    false
+                                } else if (!PermissionChecker.areNotificationsEnabled(context)) {
+                                    Log.w(
+                                        TAG,
+                                        "payment_reminder_notification skipped: notifications disabled"
+                                    )
+                                    false
+                                } else {
+                                    NotificationHelper.showPaymentReminderNotification(context, message)
+                                    true
+                                }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "payment_reminder_notification failed", e)
+                                false
+                            }
+                            mainHandler.post { onComplete?.invoke(notifySuccess) }
                         }
                     }
                     else -> {
@@ -216,7 +281,8 @@ object CommandHandler {
     private fun lockDevice(
         context: Context,
         data: Map<String, Any?> = emptyMap(),
-        onComplete: ((Boolean) -> Unit)? = null
+        onComplete: ((Boolean) -> Unit)? = null,
+        reportLocalSuccessOnly: Boolean = false
     ) {
         Log.i(TAG, "Lock command received")
         val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
@@ -256,15 +322,19 @@ object CommandHandler {
             }
 
             CoroutineScope(Dispatchers.IO).launch {
+                var firestoreSuccess = false
                 try {
                     FirestoreManager.updateLockStatus(context, true)
-                    val commandId = data["commandId"] as? String
-                    FirestoreManager.markCommandExecuted(context, commandId, true, "completed")
-                    Log.i(TAG, "Lock command marked completed, isLocked=true")
+                    firestoreSuccess = true
+                    Log.i(TAG, "Lock applied in Firestore: isLocked=true")
                 } catch (e: Exception) {
                     Log.e(TAG, "Firestore lock update failed", e)
                 }
-                mainHandler.post { onComplete?.invoke(true) }
+                mainHandler.post {
+                    onComplete?.invoke(
+                        if (reportLocalSuccessOnly) lockSuccess else firestoreSuccess
+                    )
+                }
             }
         }
     }
@@ -283,7 +353,8 @@ object CommandHandler {
     fun unlockDevice(
         context: Context,
         data: Map<String, Any?> = emptyMap(),
-        onComplete: ((Boolean) -> Unit)? = null
+        onComplete: ((Boolean) -> Unit)? = null,
+        reportLocalSuccessOnly: Boolean = false
     ) {
         Log.i(TAG, "Unlock command received")
         BackgroundService.beginUnlock()
@@ -314,17 +385,17 @@ object CommandHandler {
                 try {
                     if (unlockSuccess) {
                         FirestoreManager.updateLockStatus(context, false)
-                        val commandId = data["commandId"] as? String
-                        if (!commandId.isNullOrBlank()) {
-                            FirestoreManager.markCommandExecuted(context, commandId, true, "completed")
-                        }
-                        Log.i(TAG, "Unlock command marked completed, isLocked=false")
+                        Log.i(TAG, "Unlock applied in Firestore: isLocked=false")
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "Firestore unlock update failed", e)
                     success = false
                 }
-                mainHandler.post { onComplete?.invoke(success) }
+                mainHandler.post {
+                    onComplete?.invoke(
+                        if (reportLocalSuccessOnly) unlockSuccess else success
+                    )
+                }
             }
         }
     }
@@ -442,8 +513,6 @@ object CommandHandler {
                         "lastLocationTime" to FieldValue.serverTimestamp()
                     )
                 ).await()
-                val commandId = data["commandId"] as? String
-                FirestoreManager.markCommandExecuted(context, commandId, true, "completed")
                 Log.i(TAG, "Location sent lat=${location.latitude} lng=${location.longitude}")
                 success = true
             } catch (e: Exception) {
