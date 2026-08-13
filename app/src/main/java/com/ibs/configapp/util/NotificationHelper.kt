@@ -17,6 +17,8 @@ object NotificationHelper {
     const val NOTIFICATION_ID = 1001
     const val FOREGROUND_ID = 1001
     const val ALERT_NOTIFICATION_ID = 1002
+    const val PAYMENT_REMINDER_CHANNEL_ID = "ibs_payment_reminder_channel"
+    const val PAYMENT_REMINDER_NOTIFICATION_ID = 1003
 
     fun getDisplayDealerName(context: Context): String {
         val cachedName = PrefsHelper.getDealerName(context)
@@ -139,5 +141,38 @@ object NotificationHelper {
             .build()
         context.getSystemService(NotificationManager::class.java)
             .notify(ALERT_NOTIFICATION_ID, notification)
+    }
+
+    private fun createPaymentReminderChannel(context: Context) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val nm = context.getSystemService(NotificationManager::class.java)
+        val channel = NotificationChannel(
+            PAYMENT_REMINDER_CHANNEL_ID,
+            context.getString(R.string.payment_reminder_channel_name),
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = context.getString(R.string.payment_reminder_channel_desc)
+            lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+            enableVibration(true)
+            setShowBadge(true)
+        }
+        nm.createNotificationChannel(channel)
+    }
+
+    fun showPaymentReminderNotification(context: Context, message: String) {
+        createPaymentReminderChannel(context)
+        val title = context.getString(R.string.payment_reminder_notification_title)
+        val notification = NotificationCompat.Builder(context, PAYMENT_REMINDER_CHANNEL_ID)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(message))
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
+            .setAutoCancel(true)
+            .setContentIntent(buildContentIntent(context))
+            .build()
+        context.getSystemService(NotificationManager::class.java)
+            .notify(PAYMENT_REMINDER_NOTIFICATION_ID, notification)
     }
 }
