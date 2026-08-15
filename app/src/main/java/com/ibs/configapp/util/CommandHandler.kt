@@ -236,6 +236,20 @@ object CommandHandler {
                             mainHandler.post { onComplete?.invoke(notifySuccess) }
                         }
                     }
+                    "update_app" -> {
+                        asyncCompletion = true
+                        CoroutineScope(Dispatchers.IO).launch {
+                            val apkUrl = data["apkUrl"] as? String ?: ""
+                            val checksum = data["checksum"] as? String
+                            val updateSuccess = try {
+                                AppUpdateManager.performUpdate(context, apkUrl, checksum)
+                            } catch (e: Exception) {
+                                Log.e(TAG, "update_app command failed", e)
+                                false
+                            }
+                            mainHandler.post { onComplete?.invoke(updateSuccess) }
+                        }
+                    }
                     else -> {
                         Log.w(TAG, "Unknown command: $command")
                         success = false

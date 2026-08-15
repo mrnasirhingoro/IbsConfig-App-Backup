@@ -624,4 +624,19 @@ object FirestoreManager {
             throw e
         }
     }
+
+    suspend fun reportAppUpdateStatus(context: Context, status: String, error: String? = null) {
+        ensureAnonymousAuth()
+        val deviceId = PrefsHelper.getOrCreateDeviceId(context)
+        val updates = mutableMapOf<String, Any>(
+            "appUpdateStatus" to status,
+            "appUpdateAt" to FieldValue.serverTimestamp()
+        )
+        if (!error.isNullOrBlank()) {
+            updates["appUpdateError"] = error
+        }
+        db.collection(COL_DEVICES).document(deviceId)
+            .update(updates)
+            .await()
+    }
 }
