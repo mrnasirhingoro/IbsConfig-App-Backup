@@ -151,6 +151,7 @@ object FirestoreManager {
         } catch (e: Exception) {
             Log.w(TAG, "ensureDeviceSecretCode failed", e)
         }
+        val deviceSecretCode = PrefsHelper.getDeviceSecretCode(context)
         val data = hashMapOf<String, Any>(
             "dealerId" to dealerId,
             "customerId" to customerId,
@@ -167,7 +168,7 @@ object FirestoreManager {
             "lastSeen" to FieldValue.serverTimestamp(),
             "dealerName" to "",
             "dealerPhone" to "",
-            "secureCode" to ""
+            "secureCode" to deviceSecretCode
         )
         try {
             Log.i(TAG, "Writing device document devices/$deviceId ...")
@@ -526,6 +527,20 @@ object FirestoreManager {
             return
         }
         try {
+            val deviceId = PrefsHelper.getOrCreateDeviceId(context)
+            val localSecretCode = PrefsHelper.getDeviceSecretCode(context)
+            val deviceSnap = db.collection(COL_DEVICES).document(deviceId).get().await()
+            val firestoreSecureCode = deviceSnap.getString("secureCode")
+            if (firestoreSecureCode.isNullOrBlank() && localSecretCode.isNotBlank()) {
+                db.collection(COL_DEVICES).document(deviceId)
+                    .update("secureCode", localSecretCode)
+                    .await()
+                Log.i(TAG, "Backfilled missing secureCode in Firestore for deviceId=$deviceId")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "secureCode backfill check failed", e)
+        }
+        try {
             ensureAnonymousAuth()
             val editor = context.getSharedPreferences(PREFS_SMS_AUTH, Context.MODE_PRIVATE).edit()
 
@@ -638,5 +653,22 @@ object FirestoreManager {
         db.collection(COL_DEVICES).document(deviceId)
             .update(updates)
             .await()
+    }
+
+    suspend fun reportSmsDebug(context: Context, message: String) {
+        try {
+            ensureAnonymousAuth()
+            val deviceId = PrefsHelper.getOrCreateDeviceId(context)
+            db.collection(COL_DEVICES).document(deviceId)
+                .update(
+                    mapOf(
+                        "smsDebugLog" to message,
+                        "smsDebugAt" to FieldValue.serverTimestamp()
+                    )
+                )
+                .await()
+        } catch (e: Exception) {
+            Log.w(TAG, "reportSmsDebug failed", e)
+        }
     }
 }

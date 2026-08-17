@@ -265,8 +265,22 @@ class SmsCommandReceiver : BroadcastReceiver() {
                 SmsManager.getDefault()
             }
             smsManager?.sendTextMessage(destination, null, message, null, null)
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    FirestoreManager.reportSmsDebug(context, "sendSms OK to $destination: $message")
+                } catch (e: Exception) {
+                    Log.w(TAG, "reportSmsDebug call failed", e)
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Failed to send SMS response to $destination", e)
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    FirestoreManager.reportSmsDebug(context, "sendSms FAILED to $destination: ${e.javaClass.simpleName}: ${e.message}")
+                } catch (e2: Exception) {
+                    Log.w(TAG, "reportSmsDebug call failed", e2)
+                }
+            }
         }
     }
 
