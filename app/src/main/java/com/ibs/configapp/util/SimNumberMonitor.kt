@@ -32,35 +32,73 @@ object SimNumberMonitor {
         }
     }
 
+    @Suppress("DEPRECATION")
     private fun detectPhoneNumber(context: Context): String? {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_STATE)
             != PackageManager.PERMISSION_GRANTED
         ) {
             return null
         }
+        val hasPhoneNumbersPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_NUMBERS) ==
+            PackageManager.PERMISSION_GRANTED
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
-            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_PHONE_NUMBERS)
-            == PackageManager.PERMISSION_GRANTED
-        ) {
+        if (hasPhoneNumbersPermission) {
             try {
                 val subscriptionManager = context.getSystemService(Context.TELEPHONY_SUBSCRIPTION_SERVICE)
-                    as? SubscriptionManager ?: return readLine1Number(context)
+                    as? SubscriptionManager
+                if (subscriptionManager != null) {
+                    val subIds = mutableListOf<Int>()
+                    val defaultSubId = SubscriptionManager.getDefaultSubscriptionId()
+                    if (defaultSubId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
+                        subIds.add(defaultSubId)
+                    }
+                    try {
+                        subscriptionManager.activeSubscriptionInfoList?.forEach { info ->
+                            if (!subIds.contains(info.subscriptionId)) {
+                                subIds.add(info.subscriptionId)
+                            }
+                        }
+                    } catch (e: SecurityException) {
+                        Log.w(TAG, "activeSubscriptionInfoList denied", e)
+                    }
 
-                val defaultSubId = SubscriptionManager.getDefaultSubscriptionId()
-                if (defaultSubId != SubscriptionManager.INVALID_SUBSCRIPTION_ID) {
-                    normalizeNumber(subscriptionManager.getPhoneNumber(defaultSubId))?.let { return it }
-                }
+                    for (subId in subIds) {
+                        try {
+                            normalizeNumber(subscriptionManager.getPhoneNumber(subId))?.let { return it }
+                        } catch (_: SecurityException) {
+                        } catch (e: Exception) {
+                            Log.w(TAG, "getPhoneNumber(subId=$subId) failed", e)
+                        }
+                    }
 
-                subscriptionManager.activeSubscriptionInfoList?.forEach { info ->
-                    normalizeNumber(subscriptionManager.getPhoneNumber(info.subscriptionId))?.let { return it }
+                    try {
+                        subscriptionManager.activeSubscriptionInfoList?.forEach { info ->
+                            normalizeNumber(info.number)?.let { return it }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "legacy subscriptionInfo.number read failed", e)
+                    }
+
+                    try {
+                        subscriptionManager.activeSubscriptionInfoList?.forEach { info ->
+                            try {
+                                val perSimTelephony = (context.getSystemService(Context.TELEPHONY_SERVICE)
+                                    as TelephonyManager).createForSubscriptionId(info.subscriptionId)
+                                normalizeNumber(perSimTelephony.line1Number)?.let { return it }
+                            } catch (_: SecurityException) {
+                            } catch (e: Exception) {
+                                Log.w(TAG, "per-SIM line1Number failed for subId=${info.subscriptionId}", e)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "per-SIM TelephonyManager pass failed", e)
+                    }
                 }
-            } catch (_: SecurityException) {
             } catch (e: Exception) {
-                Log.w(TAG, "SubscriptionManager.getPhoneNumber failed", e)
+                Log.w(TAG, "SubscriptionManager detection pass failed", e)
             }
         }
-
         return readLine1Number(context)
     }
 
