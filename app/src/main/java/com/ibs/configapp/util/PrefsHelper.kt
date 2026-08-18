@@ -36,6 +36,16 @@ object PrefsHelper {
     private const val KEY_MANUAL_DEVICE_OWNER_SETUP = "manual_device_owner_setup"
     private const val KEY_PENDING_DEALER_ID = "pending_dealer_id"
     private const val KEY_PENDING_ACTIVATION_CODE = "pending_activation_code"
+    private const val KEY_CACHED_DEALER_NAME = "cached_lockscreen_dealer_name"
+    private const val KEY_CACHED_DEALER_NUMBER = "cached_lockscreen_dealer_number"
+    private const val KEY_CACHED_WASOOLI_NAME = "cached_lockscreen_wasooli_name"
+    private const val KEY_CACHED_WASOOLI_NUMBER = "cached_lockscreen_wasooli_number"
+    private const val KEY_CACHED_MANAGER_NAME = "cached_lockscreen_manager_name"
+    private const val KEY_CACHED_MANAGER_NUMBER = "cached_lockscreen_manager_number"
+    private const val KEY_CACHED_BANK_ACCOUNT_NAME = "cached_lockscreen_bank_name"
+    private const val KEY_CACHED_BANK_ACCOUNT_NUMBER = "cached_lockscreen_bank_number"
+    private const val KEY_CACHED_BRAND_COLOR = "cached_lockscreen_brand_color"
+    private const val KEY_CACHED_SECONDARY_COLOR = "cached_lockscreen_secondary_color"
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -253,5 +263,48 @@ object PrefsHelper {
 
     fun clearAll(context: Context) {
         prefs(context).edit().clear().apply()
+    }
+
+    fun cacheLockScreenContactInfo(
+        context: Context,
+        dealerName: String?,
+        dealerNumber: String?,
+        wasooliName: String?,
+        wasooliNumber: String?,
+        managerName: String?,
+        managerNumber: String?,
+        bankAccountName: String?,
+        bankAccountNumber: String?,
+        brandColor: String?,
+        secondaryColor: String?
+    ) {
+        prefs(context).edit()
+            .putString(KEY_CACHED_DEALER_NAME, dealerName)
+            .putString(KEY_CACHED_DEALER_NUMBER, dealerNumber)
+            .putString(KEY_CACHED_WASOOLI_NAME, wasooliName)
+            .putString(KEY_CACHED_WASOOLI_NUMBER, wasooliNumber)
+            .putString(KEY_CACHED_MANAGER_NAME, managerName)
+            .putString(KEY_CACHED_MANAGER_NUMBER, managerNumber)
+            .putString(KEY_CACHED_BANK_ACCOUNT_NAME, bankAccountName)
+            .putString(KEY_CACHED_BANK_ACCOUNT_NUMBER, bankAccountNumber)
+            .putString(KEY_CACHED_BRAND_COLOR, brandColor)
+            .putString(KEY_CACHED_SECONDARY_COLOR, secondaryColor)
+            .apply()
+    }
+
+    fun getCachedLockScreenContactInfo(context: Context): Map<String, String?> {
+        val p = prefs(context)
+        return mapOf(
+            "dealerName" to p.getString(KEY_CACHED_DEALER_NAME, null),
+            "dealerNumber" to p.getString(KEY_CACHED_DEALER_NUMBER, null),
+            "wasooliName" to p.getString(KEY_CACHED_WASOOLI_NAME, null),
+            "wasooliNumber" to p.getString(KEY_CACHED_WASOOLI_NUMBER, null),
+            "managerName" to p.getString(KEY_CACHED_MANAGER_NAME, null),
+            "managerNumber" to p.getString(KEY_CACHED_MANAGER_NUMBER, null),
+            "bankAccountName" to p.getString(KEY_CACHED_BANK_ACCOUNT_NAME, null),
+            "bankAccountNumber" to p.getString(KEY_CACHED_BANK_ACCOUNT_NUMBER, null),
+            "brandColor" to p.getString(KEY_CACHED_BRAND_COLOR, null),
+            "secondaryColor" to p.getString(KEY_CACHED_SECONDARY_COLOR, null)
+        )
     }
 }

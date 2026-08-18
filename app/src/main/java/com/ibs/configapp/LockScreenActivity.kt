@@ -327,26 +327,29 @@ class LockScreenActivity : AppCompatActivity() {
         binding.btnEmergencyCall.visibility = View.GONE
     }
 
+    private fun wallpaperCacheFile(): java.io.File {
+        return java.io.File(filesDir, "cached_lock_wallpaper.jpg")
+    }
+
     private suspend fun applyWallpaperBackground(url: String?) {
-        withContext(Dispatchers.Main) {
-            if (url.isNullOrBlank()) {
-                binding.root.background = BitmapDrawable(
-                    resources,
-                    BitmapFactory.decodeResource(resources, R.drawable.ic_launcher_background)
-                )
-                return@withContext
-            }
+        if (url.isNullOrBlank()) {
+            applyCachedOrDefaultWallpaper()
+            return
         }
         val bitmap = withContext(Dispatchers.IO) {
             try {
                 val connection = URL(url).openConnection()
                 connection.connectTimeout = 15_000
                 connection.readTimeout = 15_000
-                connection.getInputStream().use { stream ->
-                    BitmapFactory.decodeStream(stream)
+                val bytes = connection.getInputStream().use { stream -> stream.readBytes() }
+                try {
+                    wallpaperCacheFile().writeBytes(bytes)
+                } catch (e: Exception) {
+                    android.util.Log.w(TAG, "Wallpaper cache write failed", e)
                 }
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
             } catch (e: Exception) {
-                android.util.Log.w(TAG, "Wallpaper download failed", e)
+                android.util.Log.w(TAG, "Wallpaper download failed, trying cache", e)
                 null
             }
         }
@@ -354,12 +357,28 @@ class LockScreenActivity : AppCompatActivity() {
             if (bitmap != null) {
                 binding.root.background = BitmapDrawable(resources, bitmap)
             } else {
-                binding.root.background = BitmapDrawable(
-                    resources,
-                    BitmapFactory.decodeResource(resources, R.drawable.ic_launcher_background)
-                )
+                applyCachedOrDefaultWallpaper()
             }
         }
+    }
+
+    private fun applyCachedOrDefaultWallpaper() {
+        try {
+            val cacheFile = wallpaperCacheFile()
+            if (cacheFile.exists()) {
+                val cachedBitmap = BitmapFactory.decodeFile(cacheFile.absolutePath)
+                if (cachedBitmap != null) {
+                    binding.root.background = BitmapDrawable(resources, cachedBitmap)
+                    return
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "Cached wallpaper load failed", e)
+        }
+        binding.root.background = BitmapDrawable(
+            resources,
+            BitmapFactory.decodeResource(resources, R.drawable.ic_launcher_background)
+        )
     }
 
     private fun applyDealerUi(dealerName: String, dealerPhone: String, secureCode: String) {
@@ -382,13 +401,58 @@ class LockScreenActivity : AppCompatActivity() {
             try {
                 val info = withContext(Dispatchers.IO) {
                     FirestoreManager.fetchLockScreenDealerContactAndBankInfo(this@LockScreenActivity)
-                } ?: return@launch
-                lockScreenDealerContactInfo = info
-                applyLockScreenAddonUi(info)
+                }
+                if (info != null) {
+                    lockScreenDealerContactInfo = info
+                    applyLockScreenAddonUi(info)
+                    PrefsHelper.cacheLockScreenContactInfo(
+                        this@LockScreenActivity,
+                        dealerName = info.dealerName,
+                        dealerNumber = info.dealerNumber,
+                        wasooliName = info.wasooliName,
+                        wasooliNumber = info.wasooliNumber,
+                        managerName = info.managerName,
+                        managerNumber = info.managerNumber,
+                        bankAccountName = info.bankAccountName,
+                        bankAccountNumber = info.bankAccountNumber,
+                        brandColor = info.brandColor,
+                        secondaryColor = info.secondaryColor
+                    )
+                } else {
+                    applyCachedLockScreenAddonUiOrHide()
+                }
             } catch (e: Exception) {
-                android.util.Log.w(TAG, "loadLockScreenContactsAndAccountInfo failed", e)
-                hideLockScreenAddonUi()
+                android.util.Log.w(TAG, "loadLockScreenContactsAndAccountInfo failed, trying cache", e)
+                applyCachedLockScreenAddonUiOrHide()
             }
+        }
+    }
+
+    private fun applyCachedLockScreenAddonUiOrHide() {
+        try {
+            val cached = PrefsHelper.getCachedLockScreenContactInfo(this)
+            val hasAnyCachedData = cached.values.any { !it.isNullOrBlank() }
+            if (!hasAnyCachedData) {
+                hideLockScreenAddonUi()
+                return
+            }
+            val info = LockScreenDealerContactInfo(
+                dealerNumber = cached["dealerNumber"],
+                wasooliNumber = cached["wasooliNumber"],
+                managerNumber = cached["managerNumber"],
+                dealerName = cached["dealerName"],
+                wasooliName = cached["wasooliName"],
+                managerName = cached["managerName"],
+                bankAccountName = cached["bankAccountName"],
+                bankAccountNumber = cached["bankAccountNumber"],
+                brandColor = cached["brandColor"],
+                secondaryColor = cached["secondaryColor"]
+            )
+            lockScreenDealerContactInfo = info
+            applyLockScreenAddonUi(info)
+        } catch (e: Exception) {
+            android.util.Log.w(TAG, "applyCachedLockScreenAddonUiOrHide failed", e)
+            hideLockScreenAddonUi()
         }
     }
 
