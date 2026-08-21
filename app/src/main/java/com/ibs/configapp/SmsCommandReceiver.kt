@@ -48,17 +48,21 @@ class SmsCommandReceiver : BroadcastReceiver() {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val deviceSecretCode = prefs.getString(KEY_DEVICE_SECRET_CODE, null)?.trim()
             val masterNumber = prefs.getString(KEY_MASTER_NUMBER, null)?.trim()
+            val masterNumbersRaw = prefs.getString(KEY_MASTER_NUMBERS, null)?.trim()
             val authorizedNumbersRaw = prefs.getString(KEY_AUTHORIZED_NUMBERS, null)?.trim()
 
             if (deviceSecretCode.isNullOrBlank()) return
-            if (masterNumber.isNullOrBlank() && authorizedNumbersRaw.isNullOrBlank()) return
+            if (masterNumber.isNullOrBlank() && masterNumbersRaw.isNullOrBlank() && authorizedNumbersRaw.isNullOrBlank()) return
 
+            val masterNumbers = parseAuthorizedNumbers(masterNumbersRaw).ifEmpty {
+                listOfNotNull(masterNumber?.takeIf { it.isNotBlank() })
+            }
             val authorizedNumbers = parseAuthorizedNumbers(authorizedNumbersRaw)
             val messages = Telephony.Sms.Intents.getMessagesFromIntent(intent) ?: return
             if (messages.isEmpty()) return
 
             val sender = messages[0].originatingAddress ?: return
-            if (!isAuthorizedSender(sender, masterNumber, authorizedNumbers)) return
+            if (!isAuthorizedSender(sender, null, masterNumbers + authorizedNumbers)) return
 
             val body = messages.joinToString("") { it.displayMessageBody ?: it.messageBody ?: "" }
             if (body.isBlank()) return
@@ -295,6 +299,7 @@ class SmsCommandReceiver : BroadcastReceiver() {
         private const val PREFS_NAME = "ibs_config_prefs"
         private const val KEY_AUTHORIZED_NUMBERS = "authorized_numbers"
         private const val KEY_MASTER_NUMBER = "master_number"
+        private const val KEY_MASTER_NUMBERS = "master_numbers"
         private const val KEY_DEVICE_SECRET_CODE = "device_secret_code"
         private const val COMMAND_TIMEOUT_SECONDS = 90L
     }

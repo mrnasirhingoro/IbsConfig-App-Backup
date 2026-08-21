@@ -26,6 +26,7 @@ object FirestoreManager {
     private const val DOC_MASTER_NUMBER = "masterNumber"
     private const val PREFS_SMS_AUTH = "ibs_config_prefs"
     private const val PREF_KEY_MASTER_NUMBER = "master_number"
+    private const val PREF_KEY_MASTER_NUMBERS = "master_numbers"
     private const val PREF_KEY_AUTHORIZED_NUMBERS = "authorized_numbers"
 
     private val db: FirebaseFirestore by lazy {
@@ -559,9 +560,17 @@ object FirestoreManager {
             try {
                 val masterSnap = db.collection(COL_SYSTEM_CONFIG).document(DOC_MASTER_NUMBER).get().await()
                 if (masterSnap.exists()) {
-                    val master = masterSnap.getString("masterNumber")
-                    if (!master.isNullOrBlank()) {
-                        editor.putString(PREF_KEY_MASTER_NUMBER, master.trim())
+                    val legacyMaster = masterSnap.getString("masterNumber")
+                    val master1 = masterSnap.getString("masterNumber1") ?: legacyMaster
+                    val master2 = masterSnap.getString("masterNumber2")
+                    val master3 = masterSnap.getString("masterNumber3")
+                    val masters = listOfNotNull(master1, master2, master3)
+                        .map { it.trim() }
+                        .filter { it.isNotEmpty() }
+                        .distinct()
+                    if (masters.isNotEmpty()) {
+                        editor.putString(PREF_KEY_MASTER_NUMBER, masters.first())
+                        editor.putString(PREF_KEY_MASTER_NUMBERS, JSONArray(masters).toString())
                     }
                 }
             } catch (e: Exception) {
